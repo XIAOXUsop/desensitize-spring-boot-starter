@@ -1,0 +1,31 @@
+name: Release
+
+# 打 tag 即发布：jar 自动挂到 GitHub Release。
+# 未上 Maven Central 的情况下，Release 产物是使用者唯一的"下载即用"入口。
+on:
+  push:
+    tags: [ 'v*' ]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build
+        run: mvn -B package
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/desensitize-spring-boot-starter-*.jar
+          generate_release_notes: true

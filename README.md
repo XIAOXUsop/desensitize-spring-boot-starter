@@ -23,7 +23,20 @@
 
 ### 1. 引入依赖
 
-尚未发布到 Maven Central，可先 clone 后本地安装：
+尚未发布到 Maven Central，两种取用方式：
+
+**方式一：直接下载 jar 安装到本地仓库**（无需 clone、无需构建）
+
+```bash
+curl -LO https://github.com/XIAOXUsop/desensitize-spring-boot-starter/releases/latest/download/desensitize-spring-boot-starter-0.3.0.jar
+mvn install:install-file \
+  -Dfile=desensitize-spring-boot-starter-0.3.0.jar \
+  -DgroupId=com.xiaoxu \
+  -DartifactId=desensitize-spring-boot-starter \
+  -Dversion=0.3.0 -Dpackaging=jar
+```
+
+**方式二：从源码构建**
 
 ```bash
 mvn install         # 安装到本地仓库
