@@ -4,13 +4,30 @@
       "name": "xiaoxu.desensitize.enabled",
       "type": "java.lang.Boolean",
       "defaultValue": true,
-      "description": "是否启用注解式敏感数据脱敏。设为 false 时整个自动配置不生效。"
+      "description": "是否启用注解式敏感数据脱敏（接口返回值序列化时掩码）。设为 false 时该自动配置不生效。"
     },
     {
       "name": "xiaoxu.desensitize.mask-char",
       "type": "java.lang.Character",
       "defaultValue": "*",
       "description": "脱敏占位字符，默认 '*'。"
+    },
+    {
+      "name": "xiaoxu.desensitize.pseudonym.enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": false,
+      "description": "是否启用可逆假名化（大模型输入输出脱敏）。默认关闭，需显式开启并配置密钥。"
+    },
+    {
+      "name": "xiaoxu.desensitize.pseudonym.secret",
+      "type": "java.lang.String",
+      "description": "令牌密钥（HMAC-SHA256）。必须由环境变量或密钥管理服务注入，不要写进仓库；更换密钥会使已发出的令牌全部失效。"
+    },
+    {
+      "name": "xiaoxu.desensitize.pseudonym.types",
+      "type": "java.util.Set<com.xiaoxu.desensitize.annotation.SensitiveType>",
+      "description": "参与识别与还原的敏感类型，默认 ID_CARD、BANK_CARD、PHONE、EMAIL。",
+      "defaultValue": ["ID_CARD", "BANK_CARD", "PHONE", "EMAIL"]
     }
   ]
 }

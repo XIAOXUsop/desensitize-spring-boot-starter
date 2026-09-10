@@ -1,1 +1,2 @@
 com.xiaoxu.desensitize.config.DesensitizeAutoConfiguration
+com.xiaoxu.desensitize.config.PseudonymAutoConfiguration

@@ -1,6 +1,8 @@
 # desensitize-spring-boot-starter
 
-> 注解式敏感数据脱敏 Spring Boot Starter —— 一个 `@Sensitive` 注解搞定接口返回值的脱敏。
+> 敏感数据防护 Spring Boot Starter，两层能力：
+> **① 接口返回值脱敏**（`@Sensitive` 注解，不可逆掩码）
+> **② 大模型输入输出脱敏**（可逆假名化，让模型看得见上下文、看不见真实身份）
 
 <div align="center">
 
@@ -31,7 +33,7 @@ mvn install         # 安装到本地仓库
 <dependency>
     <groupId>com.xiaoxu</groupId>
     <artifactId>desensitize-spring-boot-starter</artifactId>
-    <version>0.2.0</version>
+    <version>0.3.0</version>
 </dependency>
 ```
 
@@ -121,22 +123,83 @@ DesensitizeCore.mask(type, raw, keepFirst, keepLast, maskChar)
 关键是切入点选在**序列化层（展示态）**，而不是持久层（存储态）：
 数据库里仍然是密文/原文，只在向外输出的那一刻掩码，因此不侵入 MyBatis / JPA，也不影响内部业务逻辑对真实数据的读取。
 
+## ② 大模型输入输出脱敏（可逆假名化）
+
+掩码解决不了大模型场景：它保留了部分原文（仍是个人信息），且模型无法凭掩码在整段对话里
+认出"是同一个人"。这里用**确定性令牌**替代：
+
+```
+用户：帮我看下客户 110101199003078531 的交易是否可疑
+  ↓ redact()  出站脱敏
+发给模型：帮我看下客户 ID_CARD_3f9a2b7c1d 的交易是否可疑
+  ↓ 模型回复
+模型回复：客户 ID_CARD_3f9a2b7c1d 近 3 月有 14 笔等额存取，建议转人工
+  ↓ restore() 入站还原
+展示给柜员：客户 110101199003078531 近 3 月有 14 笔等额存取，建议转人工
+```
+
+### 为什么用令牌而不是掩码
+
+| | 掩码 | 确定性令牌 |
+|---|---|---|
+| 含原文 | 保留部分（仍是个人信息） | **完全不保留** |
+| 同一人跨轮次可辨识 | 否 | **是**（同一输入恒得同一令牌） |
+| 可逆 | 否 | 是（需令牌保险库） |
+| 可否伪造 | — | 否（依赖 HMAC 密钥） |
+
+令牌由 `HMAC-SHA256(密钥, 类型|原文)` 截断而来，**换密钥则全部令牌改变**；
+没有密钥既不能反推原文，也不能伪造令牌。类型并入摘要输入，
+使同一串数字在"身份证"与"银行卡"语境下得到不同令牌。
+
+### 开启方式
+
+默认关闭——该能力必须配置密钥才成立，无密钥时**启动期即失败**，而不是悄悄产出一串
+"谁都能算出来"的假令牌。
+
+```yaml
+xiaoxu:
+  desensitize:
+    pseudonym:
+      enabled: true
+      secret: ${AML_PSEUDONYM_SECRET}   # 必须由环境变量/密钥管理服务注入
+      types: [ID_CARD, BANK_CARD, PHONE, EMAIL]   # 可选，默认即这四种
+```
+
+```java
+String outbound = promptRedactor.redact(userPrompt);   // 发给模型前
+String inbound  = promptRedactor.restore(modelReply);  // 收到回复后
+```
+
+### 生产实现要点
+
+`TokenVault` 默认给的是内存实现（进程重启即丢），生产应替换为加密落库的实现：
+
+- 映射表加密存储，且与令牌密钥**分开管理**
+- 每次还原落审计日志（谁、何时、还原了哪类数据）
+- 支持按时间/客户维度删除（被遗忘权）
+- 标注了 `@ConditionalOnMissingBean`，业务侧自定义实现会自动覆盖默认
+
+> **边界说明**：脱敏只保护"传输与推理"环节。真实值最终仍会回到应用侧，
+> 因此应用侧自身的权限与审计不能被这一层替代。
+
 ## 测试
 
 ```bash
 mvn test
 ```
 
-覆盖：8 种脱敏类型的算法与边界、字段注解 / getter 注解、嵌套对象与集合、
-null 值、自定义占位字符，以及 **自动配置集成测试**（`ApplicationContextRunner`
-验证 starter 在真实 Spring 上下文中装配成功、开关与配置项生效）。
+35 项测试覆盖：8 种脱敏类型的算法与边界、字段注解 / getter 注解、嵌套对象与集合、
+null 值、自定义占位字符；**令牌确定性 / 跨密钥不可伪造 / 无原文残留 / 多轮一致 /
+还原往返 / 未知令牌不猜测**；以及两组 **自动配置集成测试**
+（`ApplicationContextRunner` 验证真实 Spring 上下文中的装配、开关、缺密钥快速失败）。
 
 ## Roadmap
 
 - [ ] 发布到 Maven Central
+- [ ] 令牌保险库的加密落库实现 + 还原审计
+- [ ] 提供 `ChatModel` 装饰器，把 redact/restore 自动套在 LangChain4j 调用链上
 - [ ] `@Sensitive` 支持类级默认策略
 - [ ] 可选的 MyBatis 查询日志脱敏
-- [ ] 与 `amlagent` 联动：尽调报告导出时的统一脱敏出口
 
 ## 相关项目
 
