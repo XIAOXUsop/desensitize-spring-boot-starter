@@ -1,0 +1,16 @@
+{
+  "properties": [
+    {
+      "name": "xiaoxu.desensitize.enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "是否启用注解式敏感数据脱敏。设为 false 时整个自动配置不生效。"
+    },
+    {
+      "name": "xiaoxu.desensitize.mask-char",
+      "type": "java.lang.Character",
+      "defaultValue": "*",
+      "description": "脱敏占位字符，默认 '*'。"
+    }
+  ]
+}

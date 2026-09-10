@@ -31,26 +31,37 @@ mvn install         # 安装到本地仓库
 <dependency>
     <groupId>com.xiaoxu</groupId>
     <artifactId>desensitize-spring-boot-starter</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
 </dependency>
 ```
 
-### 2. 给字段加注解
+### 2. 给字段或 getter 加注解
+
+注解可以写在**字段**上，也可以写在 **getter** 上：
 
 ```java
 public class Customer {
-    @Sensitive(type = SensitiveType.ID_CARD)            // 110101***1234
+    @Sensitive(type = SensitiveType.ID_CARD)             // 110101***1234
     private String idCard;
 
-    @Sensitive(type = SensitiveType.PHONE)              // 138***0000
+    @Sensitive(type = SensitiveType.PHONE)               // 138***0000
     private String phone;
 
     @Sensitive(type = SensitiveType.NAME, keepFirst = 1) // 张***
     private String name;
 
     private String city;                                 // 未标注 → 不脱敏
+
+    private String email;
+
+    @Sensitive(type = SensitiveType.EMAIL)               // z***@example.com
+    public String getEmail() {
+        return email;
+    }
 }
 ```
+
+**嵌套对象与集合自动生效**：`Order` 里嵌 `Customer`、或 `List<Customer>`，只要元素类上标了注解就会脱敏，无需额外配置。
 
 ### 3. 正常返回即可
 
@@ -83,8 +94,11 @@ public Customer detail(@PathVariable Long id) {
 ```yaml
 xiaoxu:
   desensitize:
-    enabled: true      # 全局开关，默认 true
+    enabled: true      # 全局开关，默认 true；设为 false 时整个自动配置不生效
+    mask-char: '*'     # 占位字符，默认 '*'
 ```
+
+配置项已提供 IDE 元数据（`additional-spring-configuration-metadata.json`），在 `application.yml` 中有补全提示。
 
 ## 工作原理
 
@@ -96,9 +110,9 @@ Jackson 序列化
    │
    ▼  注册 BeanSerializerModifier
 SensitiveSerializerModifier
-   │  扫描带 @Sensitive 的字段
+   │  扫描带 @Sensitive 的字段 / getter
    ▼
-DesensitizeCore.mask(type, raw, keepFirst, keepLast)
+DesensitizeCore.mask(type, raw, keepFirst, keepLast, maskChar)
    │
    ▼
 脱敏后的 JSON
@@ -107,11 +121,21 @@ DesensitizeCore.mask(type, raw, keepFirst, keepLast)
 关键是切入点选在**序列化层（展示态）**，而不是持久层（存储态）：
 数据库里仍然是密文/原文，只在向外输出的那一刻掩码，因此不侵入 MyBatis / JPA，也不影响内部业务逻辑对真实数据的读取。
 
+## 测试
+
+```bash
+mvn test
+```
+
+覆盖：8 种脱敏类型的算法与边界、字段注解 / getter 注解、嵌套对象与集合、
+null 值、自定义占位字符，以及 **自动配置集成测试**（`ApplicationContextRunner`
+验证 starter 在真实 Spring 上下文中装配成功、开关与配置项生效）。
+
 ## Roadmap
 
 - [ ] 发布到 Maven Central
-- [ ] 邮箱、地址等类型的边界用例补全
 - [ ] `@Sensitive` 支持类级默认策略
+- [ ] 可选的 MyBatis 查询日志脱敏
 - [ ] 与 `amlagent` 联动：尽调报告导出时的统一脱敏出口
 
 ## 相关项目
