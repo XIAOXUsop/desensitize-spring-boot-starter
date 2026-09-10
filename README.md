@@ -120,4 +120,4 @@ DesensitizeCore.mask(type, raw, keepFirst, keepLast)
 
 ## License
 
-MIT
+[MIT](LICENSE) © 2026 XIAOXUsop
