@@ -156,6 +156,36 @@ public final class PromptRedactor {
         return restored.toString();
     }
 
+    /**
+     * 给日志/异常信息消毒：把敏感值换成固定占位符，**不登记映射、不生成可达令牌**。
+     *
+     * <p>为什么不能直接用 {@link #redact}：那会把这段文本里的值登记进保险库，
+     * 于是"只在日志里出现过一次"的东西变成了一枚可还原的令牌——
+     * 日志消毒不该有这种副作用。反过来，日志里出现原文同样是泄漏，
+     * 所以也不能不管。
+     *
+     * <p>占位符是 {@code [REDACTED:类型]}，会保留"这里原本是什么类型"这个信息，
+     * 方便定位问题，但不保留任何可还原的线索。
+     */
+    public String sanitizeForLog(String text) {
+        if (text == null || text.isEmpty()) {
+            return text;
+        }
+        List<PiiDetector.Match> matches = PiiDetector.detect(text, types);
+        if (matches.isEmpty()) {
+            return text;
+        }
+        StringBuilder sanitized = new StringBuilder(text.length() + 16);
+        int cursor = 0;
+        for (PiiDetector.Match match : matches) {
+            sanitized.append(text, cursor, match.start());
+            sanitized.append("[REDACTED:").append(match.type().name()).append(']');
+            cursor = match.end();
+        }
+        sanitized.append(text, cursor, text.length());
+        return sanitized.toString();
+    }
+
     private void remember(String token, SensitiveType type, String raw) {
         if (scope != null && vault instanceof ScopedTokenVault scopedVault) {
             scopedVault.remember(scope, token, type, raw);

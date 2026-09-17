@@ -28,12 +28,12 @@
 **方式一：直接下载 jar 安装到本地仓库**（无需 clone、无需构建）
 
 ```bash
-curl -LO https://github.com/XIAOXUsop/desensitize-spring-boot-starter/releases/latest/download/desensitize-spring-boot-starter-0.5.0.jar
+curl -LO https://github.com/XIAOXUsop/desensitize-spring-boot-starter/releases/latest/download/desensitize-spring-boot-starter-0.6.0.jar
 mvn install:install-file \
-  -Dfile=desensitize-spring-boot-starter-0.5.0.jar \
+  -Dfile=desensitize-spring-boot-starter-0.6.0.jar \
   -DgroupId=com.xiaoxu \
   -DartifactId=desensitize-spring-boot-starter \
-  -Dversion=0.5.0 -Dpackaging=jar
+  -Dversion=0.6.0 -Dpackaging=jar
 ```
 
 > 方式一由 Maven 自动生成的 POM **不含依赖声明**——它只登记这个 jar 本身。
@@ -51,7 +51,7 @@ mvn install         # 安装到本地仓库
 <dependency>
     <groupId>com.xiaoxu</groupId>
     <artifactId>desensitize-spring-boot-starter</artifactId>
-    <version>0.5.0</version>
+    <version>0.6.0</version>
 </dependency>
 ```
 
@@ -215,6 +215,35 @@ String outbound = promptRedactor.redact(userPrompt);   // 发给模型前
 String inbound  = promptRedactor.restore(modelReply);  // 收到回复后
 ```
 
+### 把两步套在一次调用外面
+
+手写上面两行容易漏——尤其是异常路径。`PseudonymizingChat` 把「出站脱敏 → 调用 → 入站还原
+→ 异常消毒」收成一个方法，**需要显式构造**（不自动包装应用里的模型 Bean，
+否则升级一个依赖就会悄悄改写别人的模型调用）：
+
+```java
+PromptRedactor redactor = PromptRedactor.scoped(pseudonymizer, vault, VaultScope.of(sessionId), types);
+PseudonymizingChat chat = PseudonymizingChat.scoped(redactor, prompt -> chatModel.chat(prompt));
+
+String reply = chat.chat("客户 110101199003078531 的交易是否可疑");   // 拿到的回复里是真实身份
+```
+
+多轮对话复用同一个实例即可：同一客户在整段会话里始终是同一个令牌。
+
+**关于异常**：模型 SDK 常把请求内容带进异常 message。所以调用失败时这一层会
+给 message 消毒（原文变成 `[REDACTED:类型]`），并且——**本次请求确实含敏感内容时**——
+不保留底层堆栈。堆栈是最常被打印的东西，挂上去等于把原文放进日志。
+代价是丢失底层堆栈，这是刻意付的；底层异常的类型名仍然保留，
+足够区分超时、鉴权失败与别的。请求本身不含敏感内容时不做这个取舍，堆栈照常保留。
+
+**不支持流式**：流式的令牌可能被切成两半（`ID_CARD_v2_9f2c` 与 `4a1b…`），
+逐块还原要么漏、要么把半个令牌当正文吐出去。与其做一个"大部分时候对"的版本，
+不如明确说不支持——需要流式就自己在完整分片边界上还原。
+
+> 不依赖 LangChain4j：`ChatInvoker` 就是一个 `String -> String` 的函数式接口，
+> 用 LangChain4j 时接一行 `prompt -> chatModel.chat(prompt)` 即可。
+> 核心模块的运行时依赖仍然只有 Jackson。
+
 ### 生产实现要点
 
 `TokenVault` 默认给的是内存实现（进程重启即丢），生产应替换为加密落库的实现：
@@ -266,12 +295,14 @@ scopedVault.forget(session);                              // 只清这一个会�
 mvn test
 ```
 
-83 项测试覆盖：8 种脱敏类型的算法与边界、字段注解 / getter 注解、嵌套对象与集合、
+95 项测试覆盖：8 种脱敏类型的算法与边界、字段注解 / getter 注解、嵌套对象与集合、
 null 值、自定义占位字符；**令牌位数与版本解析（v1/v2）、跨密钥不可伪造 / 无原文残留 /
 多轮一致 / 还原往返 / 未知令牌与伪造令牌不猜测**；**保险库碰撞失败**（同令牌同原文幂等、
 同令牌异原文抛异常且保留原映射、异常不泄漏原文）；**会话级隔离**（作用域互不可见、
 整体撤销不影响其他会话、作用域名无法被构造成撞键、过期后不可还原、并发读写一致、
-审计回调不含原文）；以及两组 **自动配置集成测试**
+审计回调不含原文）；**模型调用装饰器**（多轮令牌一致、未知令牌不猜测、异常信息消毒、
+含敏感内容时不保留堆栈、不含敏感内容时保留堆栈、日志消毒不登记映射）；
+以及两组 **自动配置集成测试**
 （`ApplicationContextRunner` 验证真实 Spring 上下文中的装配、开关、缺密钥快速失败）。
 
 ## Roadmap
@@ -279,7 +310,8 @@ null 值、自定义占位字符；**令牌位数与版本解析（v1/v2）、�
 - [ ] 发布到 Maven Central
 - [x] 还原审计回调（`RestoreAudit`，只给作用域与类型，不含原文）
 - [ ] 令牌保险库的**加密落库**实现（内存实现已有作用域/过期/撤销，落库版待做）
-- [ ] 提供 `ChatModel` 装饰器，把 redact/restore 自动套在 LangChain4j 调用链上
+- [x] 模型调用装饰器（`PseudonymizingChat`，零依赖，接 LangChain4j 只需一行 lambda）
+- [ ] 独立的 LangChain4j 适配模块（把 `ChatInvoker` 直接实现成 `ChatModel` 包装，需另起一个 Maven 模块）
 - [ ] `@Sensitive` 支持类级默认策略
 - [ ] 可选的 MyBatis 查询日志脱敏
 
