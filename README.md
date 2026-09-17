@@ -36,6 +36,11 @@ mvn install:install-file \
   -Dversion=0.4.0 -Dpackaging=jar
 ```
 
+> 方式一由 Maven 自动生成的 POM **不含依赖声明**——它只登记这个 jar 本身。
+> 因此宿主工程需要已经有 `spring-boot-autoconfigure` 与 `jackson-databind`
+> （任何 Spring Boot 3 工程都有）。这是"还没上 Maven Central"的临时办法，
+> 不是推荐用法；正式做法见 Roadmap。
+
 **方式二：从源码构建**
 
 ```bash
