@@ -28,12 +28,12 @@
 **方式一：直接下载 jar 安装到本地仓库**（无需 clone、无需构建）
 
 ```bash
-curl -LO https://github.com/XIAOXUsop/desensitize-spring-boot-starter/releases/latest/download/desensitize-spring-boot-starter-0.4.0.jar
+curl -LO https://github.com/XIAOXUsop/desensitize-spring-boot-starter/releases/latest/download/desensitize-spring-boot-starter-0.5.0.jar
 mvn install:install-file \
-  -Dfile=desensitize-spring-boot-starter-0.4.0.jar \
+  -Dfile=desensitize-spring-boot-starter-0.5.0.jar \
   -DgroupId=com.xiaoxu \
   -DartifactId=desensitize-spring-boot-starter \
-  -Dversion=0.4.0 -Dpackaging=jar
+  -Dversion=0.5.0 -Dpackaging=jar
 ```
 
 > 方式一由 Maven 自动生成的 POM **不含依赖声明**——它只登记这个 jar 本身。
@@ -51,7 +51,7 @@ mvn install         # 安装到本地仓库
 <dependency>
     <groupId>com.xiaoxu</groupId>
     <artifactId>desensitize-spring-boot-starter</artifactId>
-    <version>0.4.0</version>
+    <version>0.5.0</version>
 </dependency>
 ```
 
@@ -223,7 +223,39 @@ String inbound  = promptRedactor.restore(modelReply);  // 收到回复后
 - 每次还原落审计日志（谁、何时、还原了哪类数据）
 - 支持按时间/客户维度删除（被遗忘权）
 - **同令牌不同原文必须失败**（抛 `TokenCollisionException`），不得覆盖也不得静默保留
+- **按会话/租户隔离**（见下），而不是所有会话共用一张全局表
 - 标注了 `@ConditionalOnMissingBean`，业务侧自定义实现会自动覆盖默认
+
+### 会话级保险库
+
+不指定作用域时整张「令牌 → 原文」表是**全局**的，三个后果都很实际：
+会话结束想清掉自己那份映射只能清掉整张表、两个会话的令牌空间混在一起互相影响、
+也没法回答"这个令牌属于哪次会话"。
+
+```java
+VaultScope session = VaultScope.of(sessionId);            // 会话结束时用它整体撤销
+
+PromptRedactor redactor = PromptRedactor.scoped(pseudonymizer, scopedVault, session, types);
+String outbound = redactor.redact(userPrompt);
+
+scopedVault.forget(session);                              // 只清这一个会话，其他会话不受影响
+```
+
+| 能力 | 说明 |
+|---|---|
+| 隔离 | 不同作用域的映射表互不可见；一个会话的登记、计数、清理都不影响另一个 |
+| 碰撞检测 | 按作用域独立——同一令牌在两个会话里指向不同原文是允许的 |
+| 整体撤销 | `ScopedTokenVault.forget(scope)` 撤销一个会话；撤销后它的令牌无法再还原 |
+| 过期 | `new InMemoryTokenVault(Duration.ofHours(2))` 让条目自然失效，令牌变成死串 |
+| 审计 | `auditWith((scope, type) -> …)` 在每次成功还原时回调，**只给作用域与类型，不给原文** |
+
+> **作用域不改变什么，别误以为它改变了。** 令牌本身仍然是**确定性**的：同一段原文
+> 在不同会话里依然是同一个令牌串。这是跨轮次一致性的来源，不是缺陷。
+> 作用域管的是映射表的隔离，不是让令牌变成会话内唯一。真要做到"同一客户跨会话不可关联"，
+> 那要改的是密钥轮换策略。
+
+> 内存实现终究靠进程重启兜底，TTL 只是让"忘了清"有个上限。生产实现同样应支持作用域——
+> 接口已经定好了，落地时把 key 从 token 换成 scope+token 即可。
 
 > **边界说明**：脱敏只保护"传输与推理"环节。真实值最终仍会回到应用侧，
 > 因此应用侧自身的权限与审计不能被这一层替代。
@@ -234,16 +266,19 @@ String inbound  = promptRedactor.restore(modelReply);  // 收到回复后
 mvn test
 ```
 
-65 项测试覆盖：8 种脱敏类型的算法与边界、字段注解 / getter 注解、嵌套对象与集合、
+83 项测试覆盖：8 种脱敏类型的算法与边界、字段注解 / getter 注解、嵌套对象与集合、
 null 值、自定义占位字符；**令牌位数与版本解析（v1/v2）、跨密钥不可伪造 / 无原文残留 /
 多轮一致 / 还原往返 / 未知令牌与伪造令牌不猜测**；**保险库碰撞失败**（同令牌同原文幂等、
-同令牌异原文抛异常且保留原映射、异常不泄漏原文）；以及两组 **自动配置集成测试**
+同令牌异原文抛异常且保留原映射、异常不泄漏原文）；**会话级隔离**（作用域互不可见、
+整体撤销不影响其他会话、作用域名无法被构造成撞键、过期后不可还原、并发读写一致、
+审计回调不含原文）；以及两组 **自动配置集成测试**
 （`ApplicationContextRunner` 验证真实 Spring 上下文中的装配、开关、缺密钥快速失败）。
 
 ## Roadmap
 
 - [ ] 发布到 Maven Central
-- [ ] 令牌保险库的加密落库实现 + 还原审计
+- [x] 还原审计回调（`RestoreAudit`，只给作用域与类型，不含原文）
+- [ ] 令牌保险库的**加密落库**实现（内存实现已有作用域/过期/撤销，落库版待做）
 - [ ] 提供 `ChatModel` 装饰器，把 redact/restore 自动套在 LangChain4j 调用链上
 - [ ] `@Sensitive` 支持类级默认策略
 - [ ] 可选的 MyBatis 查询日志脱敏

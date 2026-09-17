@@ -41,14 +41,51 @@ public final class PromptRedactor {
     private final TokenVault vault;
     private final Set<SensitiveType> types;
 
+    /** 绑定到某个会话作用域时才有值；null 表示用保险库的默认（全局）作用域 */
+    private final VaultScope scope;
+
     public PromptRedactor(Pseudonymizer pseudonymizer, TokenVault vault) {
         this(pseudonymizer, vault, DEFAULT_TYPES);
     }
 
     public PromptRedactor(Pseudonymizer pseudonymizer, TokenVault vault, Set<SensitiveType> types) {
+        this(pseudonymizer, vault, null, types);
+    }
+
+    private PromptRedactor(Pseudonymizer pseudonymizer, TokenVault vault, VaultScope scope, Set<SensitiveType> types) {
         this.pseudonymizer = pseudonymizer;
         this.vault = vault;
+        this.scope = scope;
         this.types = Set.copyOf(types);
+    }
+
+    /**
+     * 绑定到一个会话作用域的脱敏器。
+     *
+     * <p>为什么需要它：不绑作用域时，整张「令牌 → 原文」表是全局的。
+     * 两个互不相关的会话只要用到同一段原文就会共享映射——令牌因此变成跨会话可关联的标识，
+     * 而会话结束时也没法只清掉自己那一份。
+     *
+     * <p>绑上之后：同一段原文在不同会话里各自登记、互不可见；
+     * 会话结束时对保险库调 {@link ScopedTokenVault#forget(VaultScope)} 即可整体撤销。
+     *
+     * @param scopedVault 支持作用域的保险库
+     * @param scope       本次会话的作用域
+     */
+    public static PromptRedactor scoped(Pseudonymizer pseudonymizer, ScopedTokenVault scopedVault,
+            VaultScope scope, Set<SensitiveType> types) {
+        if (scopedVault == null) {
+            throw new IllegalArgumentException("scopedVault 不能为空");
+        }
+        if (scope == null) {
+            throw new IllegalArgumentException("scope 不能为空：不指定作用域就不是会话级的脱敏器");
+        }
+        return new PromptRedactor(pseudonymizer, scopedVault, scope, types);
+    }
+
+    /** 本次脱敏使用的会话作用域；未绑定时为空 */
+    public java.util.Optional<VaultScope> scope() {
+        return java.util.Optional.ofNullable(scope);
     }
 
     /**
@@ -71,7 +108,7 @@ public final class PromptRedactor {
         for (PiiDetector.Match match : matches) {
             redacted.append(text, cursor, match.start());
             String token = pseudonymizer.tokenize(match.type(), match.raw());
-            vault.remember(token, match.type(), match.raw());
+            remember(token, match.type(), match.raw());
             redacted.append(token);
             cursor = match.end();
         }
@@ -112,11 +149,26 @@ public final class PromptRedactor {
         do {
             restored.append(text, cursor, matcher.start());
             String token = matcher.group();
-            restored.append(vault.original(token).orElse(token));
+            restored.append(original(token).orElse(token));
             cursor = matcher.end();
         } while (matcher.find());
         restored.append(text, cursor, text.length());
         return restored.toString();
+    }
+
+    private void remember(String token, SensitiveType type, String raw) {
+        if (scope != null && vault instanceof ScopedTokenVault scopedVault) {
+            scopedVault.remember(scope, token, type, raw);
+            return;
+        }
+        vault.remember(token, type, raw);
+    }
+
+    private java.util.Optional<String> original(String token) {
+        if (scope != null && vault instanceof ScopedTokenVault scopedVault) {
+            return scopedVault.original(scope, token);
+        }
+        return vault.original(token);
     }
 
     private static Pattern tokenPattern(SensitiveType type) {
