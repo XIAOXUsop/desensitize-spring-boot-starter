@@ -28,12 +28,12 @@
 **方式一：直接下载 jar 安装到本地仓库**（无需 clone、无需构建）
 
 ```bash
-curl -LO https://github.com/XIAOXUsop/desensitize-spring-boot-starter/releases/latest/download/desensitize-spring-boot-starter-0.6.0.jar
+curl -LO https://github.com/XIAOXUsop/desensitize-spring-boot-starter/releases/latest/download/desensitize-spring-boot-starter-0.6.1.jar
 mvn install:install-file \
-  -Dfile=desensitize-spring-boot-starter-0.6.0.jar \
+  -Dfile=desensitize-spring-boot-starter-0.6.1.jar \
   -DgroupId=com.xiaoxu \
   -DartifactId=desensitize-spring-boot-starter \
-  -Dversion=0.6.0 -Dpackaging=jar
+  -Dversion=0.6.1 -Dpackaging=jar
 ```
 
 > 方式一由 Maven 自动生成的 POM **不含依赖声明**——它只登记这个 jar 本身。
@@ -70,7 +70,7 @@ mvn install         # 安装到本地仓库
 <dependency>
     <groupId>com.xiaoxu</groupId>
     <artifactId>desensitize-spring-boot-starter</artifactId>
-    <version>0.6.0</version>
+    <version>0.6.1</version>
 </dependency>
 ```
 
