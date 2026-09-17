@@ -18,9 +18,9 @@ import java.util.regex.Pattern;
  * <pre>
  * 用户：帮我看下客户 110101199003078531 的交易是否可疑
  *   ↓ redact()
- * 发给模型：帮我看下客户 ID_CARD_3f9a2b7c1d 的交易是否可疑
+ * 发给模型：帮我看下客户 ID_CARD_v2_9f2c4a1b7e3d5086c1a4f0b2d9e73618 的交易是否可疑
  *   ↓ 模型回复
- * 模型回复：客户 ID_CARD_3f9a2b7c1d 近 3 月有 14 笔等额存取，建议转人工
+ * 模型回复：客户 ID_CARD_v2_9f2c4a... 近 3 月有 14 笔等额存取，建议转人工
  *   ↓ restore()
  * 展示给柜员：客户 110101199003078531 近 3 月有 14 笔等额存取，建议转人工
  * </pre>
@@ -54,6 +54,8 @@ public final class PromptRedactor {
     /**
      * 出站脱敏：把文本中的敏感数据替换为确定性令牌，并在保险库登记映射。
      * 没有命中时原样返回（不产生任何改写）。
+     *
+     * @throws TokenCollisionException 保险库中同一令牌已对应另一段原文（见 {@link TokenVault}）
      */
     public String redact(String text) {
         if (text == null || text.isEmpty()) {
@@ -79,7 +81,13 @@ public final class PromptRedactor {
 
     /**
      * 入站还原：把模型回复中的令牌换回真实值。
-     * 保险库中不存在的令牌保持原样——宁可留下令牌，也不要猜测性地替换。
+     *
+     * <p>两道关卡，缺一不可：
+     * <ol>
+     *   <li>形态合法——匹配 {@link Pseudonymizer#tokenPattern} 定义的令牌格式（含历史 v1 格式）；
+     *   <li>保险库中确实存在——不存在就<b>保持原样</b>。模型完全可能自己编一个"看起来像令牌"的字符串，
+     *       猜测性替换等于把编造的内容当成真实身份展示出去。
+     * </ol>
      */
     public String restore(String text) {
         if (text == null || text.isEmpty()) {
@@ -112,7 +120,7 @@ public final class PromptRedactor {
     }
 
     private static Pattern tokenPattern(SensitiveType type) {
-        // 令牌约定：TYPE_ + 固定长度十六进制（见 Pseudonymizer），此处按同一约定反向匹配
-        return Pattern.compile("\\b" + Pattern.quote(type.name()) + "_[0-9a-f]{10}\\b");
+        // 令牌格式集中在 Pseudonymizer 中定义，此处只负责取用，避免生成端与解析端各写一份而漂移
+        return Pseudonymizer.tokenPattern(type);
     }
 }

@@ -28,12 +28,12 @@
 **方式一：直接下载 jar 安装到本地仓库**（无需 clone、无需构建）
 
 ```bash
-curl -LO https://github.com/XIAOXUsop/desensitize-spring-boot-starter/releases/latest/download/desensitize-spring-boot-starter-0.3.0.jar
+curl -LO https://github.com/XIAOXUsop/desensitize-spring-boot-starter/releases/latest/download/desensitize-spring-boot-starter-0.4.0.jar
 mvn install:install-file \
-  -Dfile=desensitize-spring-boot-starter-0.3.0.jar \
+  -Dfile=desensitize-spring-boot-starter-0.4.0.jar \
   -DgroupId=com.xiaoxu \
   -DartifactId=desensitize-spring-boot-starter \
-  -Dversion=0.3.0 -Dpackaging=jar
+  -Dversion=0.4.0 -Dpackaging=jar
 ```
 
 **方式二：从源码构建**
@@ -46,7 +46,7 @@ mvn install         # 安装到本地仓库
 <dependency>
     <groupId>com.xiaoxu</groupId>
     <artifactId>desensitize-spring-boot-starter</artifactId>
-    <version>0.3.0</version>
+    <version>0.4.0</version>
 </dependency>
 ```
 
@@ -144,9 +144,9 @@ DesensitizeCore.mask(type, raw, keepFirst, keepLast, maskChar)
 ```
 用户：帮我看下客户 110101199003078531 的交易是否可疑
   ↓ redact()  出站脱敏
-发给模型：帮我看下客户 ID_CARD_3f9a2b7c1d 的交易是否可疑
+发给模型：帮我看下客户 ID_CARD_v2_9f2c4a1b7e3d5086c1a4f0b2d9e73618 的交易是否可疑
   ↓ 模型回复
-模型回复：客户 ID_CARD_3f9a2b7c1d 近 3 月有 14 笔等额存取，建议转人工
+模型回复：客户 ID_CARD_v2_9f2c4a1b7e3d5086c1a4f0b2d9e73618 近 3 月有 14 笔等额存取，建议转人工
   ↓ restore() 入站还原
 展示给柜员：客户 110101199003078531 近 3 月有 14 笔等额存取，建议转人工
 ```
@@ -160,9 +160,36 @@ DesensitizeCore.mask(type, raw, keepFirst, keepLast, maskChar)
 | 可逆 | 否 | 是（需令牌保险库） |
 | 可否伪造 | — | 否（依赖 HMAC 密钥） |
 
-令牌由 `HMAC-SHA256(密钥, 类型|原文)` 截断而来，**换密钥则全部令牌改变**；
+令牌由 `HMAC-SHA256(密钥, 类型|版本|原文)` 截断而来，**换密钥则全部令牌改变**；
 没有密钥既不能反推原文，也不能伪造令牌。类型并入摘要输入，
 使同一串数字在"身份证"与"银行卡"语境下得到不同令牌。
+
+### 令牌格式与碰撞
+
+```
+TYPE_v{版本}_{十六进制摘要}      例：ID_CARD_v2_9f2c4a1b7e3d5086c1a4f0b2d9e73618
+```
+
+| 版本 | 摘要 | 状态 |
+|---|---|---|
+| `v2` | 32 位十六进制 = **128 bit** | 当前生成格式 |
+| `v1` | 10 位十六进制 = 40 bit | 已停止生成，但仍可识别并还原历史令牌 |
+
+早期 v1 只保留 40 bit。按生日界估算，**约 100 万个不同明文时就有约 50% 概率**出现
+两个明文得到同一令牌——对银行客户量级而言这不是理论风险。v2 提到 128 bit 后，
+同一量级下的碰撞概率可忽略。
+
+位数解决的是概率，**碰撞一旦真的发生，保险库必须失败而不是将就**：
+
+```java
+vault.remember(token, ID_CARD, "110101199003078531");
+vault.remember(token, ID_CARD, "110101199003078532");
+// throws TokenCollisionException —— 不覆盖、不忽略、不静默
+```
+
+如果沿用"先写入的那条"（`putIfAbsent`），模型回复里的令牌会被还原成**另一个人的真实身份**；
+如果覆盖，此前引用该令牌的上下文会集体指向错误的人。两种做法都没有任何外部症状，
+因此这里选择拒绝写入并抛出异常，让调用方看见。异常信息只含令牌与类型，**不含任何原文**。
 
 ### 开启方式
 
@@ -190,6 +217,7 @@ String inbound  = promptRedactor.restore(modelReply);  // 收到回复后
 - 映射表加密存储，且与令牌密钥**分开管理**
 - 每次还原落审计日志（谁、何时、还原了哪类数据）
 - 支持按时间/客户维度删除（被遗忘权）
+- **同令牌不同原文必须失败**（抛 `TokenCollisionException`），不得覆盖也不得静默保留
 - 标注了 `@ConditionalOnMissingBean`，业务侧自定义实现会自动覆盖默认
 
 > **边界说明**：脱敏只保护"传输与推理"环节。真实值最终仍会回到应用侧，
@@ -201,9 +229,10 @@ String inbound  = promptRedactor.restore(modelReply);  // 收到回复后
 mvn test
 ```
 
-35 项测试覆盖：8 种脱敏类型的算法与边界、字段注解 / getter 注解、嵌套对象与集合、
-null 值、自定义占位字符；**令牌确定性 / 跨密钥不可伪造 / 无原文残留 / 多轮一致 /
-还原往返 / 未知令牌不猜测**；以及两组 **自动配置集成测试**
+65 项测试覆盖：8 种脱敏类型的算法与边界、字段注解 / getter 注解、嵌套对象与集合、
+null 值、自定义占位字符；**令牌位数与版本解析（v1/v2）、跨密钥不可伪造 / 无原文残留 /
+多轮一致 / 还原往返 / 未知令牌与伪造令牌不猜测**；**保险库碰撞失败**（同令牌同原文幂等、
+同令牌异原文抛异常且保留原映射、异常不泄漏原文）；以及两组 **自动配置集成测试**
 （`ApplicationContextRunner` 验证真实 Spring 上下文中的装配、开关、缺密钥快速失败）。
 
 ## Roadmap

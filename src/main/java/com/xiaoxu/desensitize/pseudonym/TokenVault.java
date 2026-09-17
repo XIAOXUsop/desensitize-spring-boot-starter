@@ -16,12 +16,21 @@ import java.util.Optional;
  * <ul>
  *   <li>映射表应加密存储，且与令牌密钥分开管理；</li>
  *   <li>每次 {@link #original} 还原都应落审计日志（谁、何时、还原了哪类数据）；</li>
- *   <li>应支持按时间/客户维度的删除（被遗忘权）。</li>
+ *   <li>应支持按时间/客户维度的删除（被遗忘权）；</li>
+ *   <li>{@link #remember} 遇到令牌碰撞必须失败而不是覆盖，见下。</li>
  * </ul>
+ *
+ * <p><b>实现约定：同令牌不同原文必须失败。</b>{@link #remember} 允许幂等重复写入，
+ * 但若同一令牌对应的原文与已登记的<b>不同</b>，必须抛出 {@link TokenCollisionException}
+ * 并保留原映射——静默保留或静默覆盖都会导致还原出错误的人，且没有任何外部症状。
  */
 public interface TokenVault {
 
-    /** 记录令牌与原值的映射；同一令牌重复记录应当幂等 */
+    /**
+     * 记录令牌与原值的映射；同一令牌重复记录<b>相同</b>原文应当幂等。
+     *
+     * @throws TokenCollisionException 令牌已存在且对应另一段原文
+     */
     void remember(String token, SensitiveType type, String raw);
 
     /** 取回原文；令牌不存在时返回空 */

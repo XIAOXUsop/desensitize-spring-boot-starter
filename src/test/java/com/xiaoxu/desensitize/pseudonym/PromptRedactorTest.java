@@ -57,7 +57,7 @@ class PromptRedactorTest {
         String token = new Pseudonymizer("secret").tokenize(SensitiveType.ID_CARD, ID_CARD);
 
         assertFalse(token.contains(ID_CARD));
-        assertTrue(token.startsWith("ID_CARD_"));
+        assertTrue(token.startsWith("ID_CARD_v2_"));
     }
 
     @Test
@@ -118,6 +118,32 @@ class PromptRedactorTest {
 
         // 保险库里没有的令牌保持原样：宁可留下令牌，也不要猜测性替换
         assertEquals(modelReply, redactor.restore(modelReply));
+    }
+
+    @Test
+    void malformedTokenIsNotRestoredEvenIfItLooksLikeOne() {
+        // 模型很容易编出"差一位十六进制"的伪令牌；形态不合法就不该进入还原流程
+        String modelReply = "客户 ID_CARD_v2_9f2c4a1b7e3d5086c1a4f0b2d9e7361 有问题";
+
+        assertEquals(modelReply, redactor.restore(modelReply));
+    }
+
+    @Test
+    void legacyV1TokenStillRestoresWhenVaultKnowsIt() {
+        // 升级到 128 bit 之后，历史会话里发出去的 v1 令牌不应变成死串
+        vault.remember("ID_CARD_3f9a2b7c1d", SensitiveType.ID_CARD, ID_CARD);
+
+        assertEquals("客户 " + ID_CARD + " 命中名单",
+                redactor.restore("客户 ID_CARD_3f9a2b7c1d 命中名单"));
+    }
+
+    @Test
+    void redactionNeverEmitsTheRetiredShortTokenFormat() {
+        String redacted = redactor.redact("客户 " + ID_CARD);
+
+        String token = tokenIn(redacted, "ID_CARD_");
+        assertTrue(token.startsWith("ID_CARD_v2_"), token);
+        assertEquals("ID_CARD_v2_".length() + Pseudonymizer.DIGEST_HEX_LENGTH, token.length(), token);
     }
 
     @Test

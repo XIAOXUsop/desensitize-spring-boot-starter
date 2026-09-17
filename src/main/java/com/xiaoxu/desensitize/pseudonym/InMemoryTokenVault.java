@@ -13,7 +13,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * （见 {@link TokenVault} 接口注释中的实现要点），并保证映射表不出受信边界。
  *
  * <p>并发安全：使用 {@link ConcurrentHashMap}，令牌是确定性生成的，
- * 同一原文重复登记为幂等操作。
+ * 同一令牌重复登记同一原文为幂等操作。
+ *
+ * <p><b>碰撞即失败</b>：若同一令牌被要求映射到不同原文，抛出 {@link TokenCollisionException}
+ * 并保留原有映射。详见该异常的类型注释——这不是防御性编程，而是防止"还原成另一个人的身份"。
  */
 public final class InMemoryTokenVault implements TokenVault {
 
@@ -24,7 +27,11 @@ public final class InMemoryTokenVault implements TokenVault {
         if (token == null || raw == null) {
             return;
         }
-        tokenToRaw.putIfAbsent(token, raw);
+        String existing = tokenToRaw.putIfAbsent(token, raw);
+        if (existing != null && !existing.equals(raw)) {
+            // 新值未被写入，原映射保持不变，因此后续还原仍然返回第一个原文而不是静默返回第二个
+            throw new TokenCollisionException(type, token);
+        }
     }
 
     @Override
