@@ -41,6 +41,25 @@ mvn install:install-file \
 > （任何 Spring Boot 3 工程都有）。这是"还没上 Maven Central"的临时办法，
 > 不是推荐用法；正式做法见 Roadmap。
 
+### 为什么还没上 Maven Central——以及还差什么
+
+发布配置已经就位，缺的只有凭据：
+
+| 项 | 状态 |
+|---|---|
+| groupId `com.xiaoxu` | 与 GitHub 账号对应；用 `io.github.xiaoxusop` 也可，两者都能过 namespace 校验 |
+| POM 元数据 | 已补 `licenses` / `scm` / `developers`；`mvn -Prelease -Dgpg.skip=true package` 产出 `-sources.jar`（20 个源文件）与 `-javadoc.jar`（67 个页面） |
+| 签名 | `maven-gpg-plugin` 挂在 `release` profile 的 `verify` 阶段 |
+| 上传 | `central-publishing-maven-plugin`，`autoPublish=false`（停在 Portal 供人工确认） |
+| 工作流 | `.github/workflows/publish-central.yml`，**只能手动触发**且要求手打确认词 |
+
+差的是四个 secrets：`MAVEN_CENTRAL_USERNAME`、`MAVEN_CENTRAL_PASSWORD`（Sonatype 用户令牌）
+与 `GPG_PRIVATE_KEY`、`MAVEN_GPG_PASSPHRASE`。
+
+> 本仓库没有 Maven Wrapper，所以 `release` profile 里的 javadoc 插件刻意选了 3.5.0
+> 并显式写 `<source>21</source>`——3.6+ 要求 Maven ≥ 3.6.3，而使用者用的是自己装的 Maven。
+> ctxpress / amlagent 有 wrapper，不受这个限制。
+
 **方式二：从源码构建**
 
 ```bash
@@ -307,7 +326,7 @@ null 值、自定义占位字符；**令牌位数与版本解析（v1/v2）、�
 
 ## Roadmap
 
-- [ ] 发布到 Maven Central
+- [ ] 发布到 Maven Central（配置已就绪，缺 Sonatype 令牌与 GPG 私钥）
 - [x] 还原审计回调（`RestoreAudit`，只给作用域与类型，不含原文）
 - [ ] 令牌保险库的**加密落库**实现（内存实现已有作用域/过期/撤销，落库版待做）
 - [x] 模型调用装饰器（`PseudonymizingChat`，零依赖，接 LangChain4j 只需一行 lambda）

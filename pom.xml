@@ -11,6 +11,30 @@
 
     <name>desensitize-spring-boot-starter</name>
     <description>注解式敏感数据脱敏 Spring Boot Starter（展示态，Jackson 序列化层）</description>
+    <url>https://github.com/XIAOXUsop/desensitize-spring-boot-starter</url>
+
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://opensource.org/licenses/MIT</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <id>XIAOXUsop</id>
+            <name>XIAOXUsop</name>
+            <url>https://github.com/XIAOXUsop</url>
+        </developer>
+    </developers>
+
+    <!-- Central 要求 SCM 指向可访问的仓库；tag 与 POM 版本一致才能通过校验 -->
+    <scm>
+        <connection>scm:git:https://github.com/XIAOXUsop/desensitize-spring-boot-starter.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/XIAOXUsop/desensitize-spring-boot-starter.git</developerConnection>
+        <url>https://github.com/XIAOXUsop/desensitize-spring-boot-starter</url>
+        <tag>v${project.version}</tag>
+    </scm>
 
     <properties>
         <java.version>21</java.version>
@@ -78,4 +102,85 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+          发布到 Maven Central 用的 profile。**默认不参与构建**：
+          签名需要 GPG 私钥，源码 / Javadoc jar 也会拖慢日常迭代。
+
+          用法：mvn -Prelease -DskipTests deploy
+          凭据来自 settings.xml 里 id=central 的 server（Sonatype 用户令牌）。
+        -->
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <version>3.3.1</version>
+                        <executions>
+                            <execution>
+                                <id>attach-sources</id>
+                                <goals>
+                                    <goal>jar-no-fork</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <!--
+                          刻意不用 3.6+：那些版本要求 Maven ≥ 3.6.3，而本仓库没有
+                          Maven Wrapper（ctxpress / amlagent 有），使用者用的是自己装的
+                          Maven。3.5.0 在 Maven 3.3.9 与 CI 的现代 Maven 上都能跑。
+                        -->
+                        <version>3.5.0</version>
+                        <configuration>
+                            <!-- 注释里有中文与代码片段，doclint 的严格模式会让发布卡在文档格式上 -->
+                            <doclint>none</doclint>
+                            <quiet>true</quiet>
+                            <!-- 显式给源级别：不写的话 javadoc 会退回默认的 8，
+                                 于是在 switch 表达式上直接报错 -->
+                            <source>21</source>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>attach-javadocs</id>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>3.2.7</version>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>sign</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
+                        <version>0.9.0</version>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <publishingServerId>central</publishingServerId>
+                            <!-- 先传到 Portal 停在待发布状态，确认无误再点发布 -->
+                            <autoPublish>false</autoPublish>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
