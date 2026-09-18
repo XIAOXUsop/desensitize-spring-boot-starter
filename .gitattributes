@@ -1,0 +1,30 @@
+# 换行符统一为 LF。
+#
+# ── 为什么这个仓库尤其需要 ────────────────────────────────────────────
+#
+# 它有**会被打进发布 jar 的文本资源**：
+#
+#   src/main/resources/META-INF/spring/…AutoConfiguration.imports
+#   src/main/resources/META-INF/additional-spring-configuration-metadata.json
+#
+# 没有这个文件时，工作区的行尾取决于每个人的 core.autocrlf，而这两个文件的
+# 行尾会**原样进入产物**——同一份源码在不同机器上构建出字节不同的 jar。
+# 实测：已发布的 0.6.1 里 `AutoConfiguration.imports` 是 LF，
+# 而在一台 autocrlf=true 的机器上本地构建，同一个文件是 CRLF。
+#
+# 对一个已经发到 GitHub Release 的库来说，这不是洁癖问题：
+# 「下载到的 jar 是不是从这份源码构建出来的」应当能被验证，而字节不一致
+# 会让任何基于哈希的校验失去意义。
+* text=auto eol=lf
+
+# 这两个文件单独再标一次：上面的通配规则已经覆盖，但它们是**产物的一部分**
+# 而不是普通源码，写明白免得以后有人以为通配规则改动会绕过它们。
+src/main/resources/META-INF/** text eol=lf
+
+# 二进制不做行尾转换
+*.jar binary
+*.zip binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
