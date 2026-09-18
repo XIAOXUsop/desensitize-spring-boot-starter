@@ -22,7 +22,7 @@ jobs:
           cache: maven
 
       - name: Build
-        run: mvn -B package
+        run: ./mvnw -B package
 
       - name: Publish release assets
         uses: softprops/action-gh-release@v2

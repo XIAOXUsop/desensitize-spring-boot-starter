@@ -28,3 +28,23 @@ src/main/resources/META-INF/** text eol=lf
 *.jpg binary
 *.gif binary
 *.ico binary
+
+# ⚠️ 加了这些规则**不等于**问题已经修好——它不会回头改写已经检出的文件。
+#
+# 2026-09-19 实测踩到的：加完 .gitattributes 之后，工作区里的 LICENSE 仍然是 CRLF，
+# 于是本地构建出的 jar 里 `META-INF/LICENSE` 是 **1087 字节 / 21 个 CRLF**，
+# 而已发布的 v0.6.1 里同一份文件是 **1066 字节 / 0 个 CRLF**——同一份源码，
+# 产物字节不同，正是这个文件想避免的那件事。
+#
+# 原因：`.gitattributes` 只影响**之后**的检出与入库归一化。仓库里存的一直是 LF
+# （`git ls-files --eol` 显示 `i/lf`），错的只是这台机器上那份陈旧的检出。
+#
+# 已经克隆过的仓库要手动重检出一次：
+#
+#     git ls-files | while read f; do rm -f "$f"; git checkout -- "$f"; done
+#
+# 或者更省事：删掉重新 clone。之后 `git ls-files --eol` 应该全是 `i/lf w/lf`。
+#
+# 判据不是"我加了 .gitattributes"，而是**构建出来的 jar 里那个文件是多少字节**。
+# 另一半（时间戳）由 pom 里的 `project.build.outputTimestamp` 负责——
+# 两者都到位之后，同一份源码构建出的 jar 才真的逐字节相同。

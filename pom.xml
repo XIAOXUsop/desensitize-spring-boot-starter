@@ -42,6 +42,26 @@
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring-boot.version>3.5.13</spring-boot.version>
+        <!--
+          可复现构建。**这不是洁癖，是这个库能不能被验证的前提。**
+
+          这个仓库发布 jar 到 GitHub Release。如果不固定时间戳，jar 里每个条目的
+          时间就是"构建那一刻"，于是同一份源码在任何两个时刻构建出的字节都不同——
+          「你下载到的这个 jar 是不是从这份源码构建出来的」这个问题就**无法用哈希回答**。
+
+          实测过一次（2026-09-19，还没加这个属性时）：
+            已发布 v0.6.1 的 jar 与本地构建的 jar，条目列表完全相同，
+            但 `META-INF/LICENSE` 一个 1066 字节、一个 1087 字节，
+            差的 21 字节正是 21 个 CRLF——工作区检出的行尾进了产物。
+
+          那个具体问题由 `.gitattributes` + 重新检出解决（见该文件里的说明）。
+          这个属性解决的是另一半：**时间戳**。设成一个固定值之后，
+          给定同一份源码与同一个 Maven 版本，产物字节相同。
+
+          代价：jar 里的时间戳不再反映真实构建时间。对可验证性是划算的。
+          发版时不需要改它——改了反而会让"同一份源码"产出两种字节。
+        -->
+        <project.build.outputTimestamp>2026-09-19T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <dependencyManagement>

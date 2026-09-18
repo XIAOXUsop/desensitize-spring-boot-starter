@@ -36,7 +36,7 @@ jobs:
       # 版本号必须与 tag 一致，否则 Central 会拒收（"版本与 SCM tag 不符"）
       - name: Verify version matches the tag
         run: |
-          VERSION=$(mvn -B -q -DforceStdout help:evaluate -Dexpression=project.version)
+          VERSION=$(./mvnw -B -q -DforceStdout help:evaluate -Dexpression=project.version)
           TAG="${GITHUB_REF_NAME#v}"
           echo "POM 版本=$VERSION  tag=$GITHUB_REF_NAME"
           [ "$VERSION" = "$TAG" ] || { echo "::error::POM 版本($VERSION)与 tag($TAG)不一致，Central 会拒收"; exit 1; }
@@ -46,7 +46,7 @@ jobs:
           MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
-        run: mvn -B -Prelease -DskipTests deploy
+        run: ./mvnw -B -Prelease -DskipTests deploy
 
       - name: What happens next
         run: |

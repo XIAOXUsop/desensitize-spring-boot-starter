@@ -20,5 +20,11 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      # 用 wrapper（`./mvnw`）而不是 runner 上的 `mvn`：跑测试的 Maven 版本
+      # 与发版用的必须一致，否则「本地跑绿的、Release 里构建出来的不一样」——
+      # 实测过这个差别是真的：已发布的 v0.6.1 与一台用系统 Maven 3.3.9 构建的
+      # 同名 jar，`META-INF/MANIFEST.MF` 的 `Created-By` 一个写
+      # `Maven JAR Plugin 3.5.0`、一个写 `Apache Maven 3.3.9`，还多一行
+      # `Built-By: <构建机器的用户名>`。见 `.mvn/wrapper/maven-wrapper.properties`。
       - name: Run tests
-        run: mvn -B test
+        run: ./mvnw -B test
