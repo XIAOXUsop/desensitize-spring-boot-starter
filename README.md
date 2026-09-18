@@ -36,10 +36,15 @@ mvn install:install-file \
   -Dversion=0.6.1 -Dpackaging=jar
 ```
 
-> 方式一由 Maven 自动生成的 POM **不含依赖声明**——它只登记这个 jar 本身。
-> 因此宿主工程需要已经有 `spring-boot-autoconfigure` 与 `jackson-databind`
-> （任何 Spring Boot 3 工程都有）。这是"还没上 Maven Central"的临时办法，
-> 不是推荐用法；正式做法见 Roadmap。
+> 安装用的是 **jar 内嵌的 POM**，它带着依赖声明——实测在只声明 starter、
+> 不写任何 Spring / Jackson 的空工程里，`spring-boot-autoconfigure:3.5.13` 与
+> `jackson-databind:2.21.2` 会被自动带入，宿主**不需要**手动补。
+>
+> （本文档此前写的是"自动生成的 POM 不含依赖声明、宿主需自带"——**那是错的**。
+> `mvn install:install-file` 在 jar 内有 `META-INF/maven/**/pom.xml` 时用的就是它，
+> 而不是"自动生成一份最小 POM"。2026-09-18 照本文档亲手做了一遍才发现。）
+>
+> 这是"还没上 Maven Central"的临时办法，不是推荐用法；正式做法见 Roadmap。
 
 ### 为什么还没上 Maven Central——以及还差什么
 
@@ -52,6 +57,7 @@ mvn install:install-file \
 | 签名 | `maven-gpg-plugin` 挂在 `release` profile 的 `verify` 阶段 |
 | 上传 | `central-publishing-maven-plugin`，`autoPublish=false`（停在 Portal 供人工确认） |
 | 工作流 | `.github/workflows/publish-central.yml`，**只能手动触发**且要求手打确认词 |
+| `scm.tag` | ⚠️ 内嵌 POM 里是未解析的 `v${project.version}`——Maven 不解析该位置的属性。scm 的其余字段正常，Central 校验也不涉及 tag 内容，但页面上会显示成字面量 |
 
 差的是四个 secrets：`MAVEN_CENTRAL_USERNAME`、`MAVEN_CENTRAL_PASSWORD`（Sonatype 用户令牌）
 与 `GPG_PRIVATE_KEY`、`MAVEN_GPG_PASSPHRASE`。
