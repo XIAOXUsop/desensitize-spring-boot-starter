@@ -1,3 +1,7 @@
 target/
 *.iml
 .idea/
+
+# Python 编译产物（本仓库的 scripts/ 下有 Python 脚本与它们的测试）
+__pycache__/
+*.py[cod]
