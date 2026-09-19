@@ -28,33 +28,41 @@
 **方式一：直接下载 jar 安装到本地仓库**（无需 clone、无需构建）
 
 ```bash
-curl -LO https://github.com/XIAOXUsop/desensitize-spring-boot-starter/releases/latest/download/desensitize-spring-boot-starter-0.6.1.jar
+curl -LO https://github.com/XIAOXUsop/desensitize-spring-boot-starter/releases/latest/download/desensitize-spring-boot-starter.jar
 mvn install:install-file \
-  -Dfile=desensitize-spring-boot-starter-0.6.1.jar \
+  -Dfile=desensitize-spring-boot-starter.jar \
   -DgroupId=com.xiaoxu \
   -DartifactId=desensitize-spring-boot-starter \
-  -Dversion=0.6.1 -Dpackaging=jar
+  -Dversion=0.6.2 -Dpackaging=jar
 ```
 
-> ⚠️ **上面这条 URL 里的版本号要跟着每次发版改。** `releases/latest/download/<文件名>`
-> 指的是**最新那个 Release** 里的同名产物，所以旧版本的文件名会在新版本发布后直接 404。
+> ✅ **从 v0.6.2 起，文件名不再带版本号**，所以上面这条 URL 不用跟着发版改了。
 >
-> **从下一个版本起**，Release 里会多挂一份**不带版本号**的
-> `desensitize-spring-boot-starter.jar`（见 `release.yml`），那时把上面两行的文件名
-> 换成不带版本号的写法就一劳永逸了。对照：ctxpress 与 mcp-sentinel 的产物名本来就
-> 不带版本，所以它们没有这个问题。
+> 在此之前（v0.6.1 及更早）产物叫 `desensitize-spring-boot-starter-0.6.1.jar`，
+> 而 `releases/latest/download/<文件名>` 指的是**最新那个 Release** 里的同名产物——
+> 所以那种带版本号的名字会在新版本发布后**直接 404**。
+> v0.6.2 起 `release.yml` 会额外挂一份不带版本号的副本，`latest` 于是稳定可用。
+>
+> 只有 `-Dversion=` 那一行还需要跟版本走（那是你本地仓库里的坐标，可以随便起名）。
+> 对照：ctxpress 与 mcp-sentinel 的产物名本来就不带版本，所以它们没有这个问题。
 
 > 安装用的是 **jar 内嵌的 POM**，它带着依赖声明——实测在只声明 starter、
-> 不写任何 Spring / Jackson 的空工程里，`spring-boot-autoconfigure:3.5.13` 与
-> `jackson-databind:2.21.2` 会被自动带入，宿主**不需要**手动补。
+> 不写任何 Spring / Jackson 的空工程里，`spring-boot-autoconfigure` 与
+> `jackson-databind` 会被自动带入，宿主**不需要**手动补。
 >
 > （本文档此前写的是"自动生成的 POM 不含依赖声明、宿主需自带"——**那是错的**。
 > `mvn install:install-file` 在 jar 内有 `META-INF/maven/**/pom.xml` 时用的就是它，
 > 而不是"自动生成一份最小 POM"。2026-09-18 照本文档亲手做了一遍才发现。）
 
-> ⚠️ **被自动带入的那个 `jackson-databind:2.21.2` 是带洞的。**
-> 2026-09-19 实测核对：2.21.2 命中下列 5 条已知公告的**全部**（2 HIGH + 3 MEDIUM，
-> 含 `PolymorphicTypeValidator` 绕过与 `@JsonIgnore` 绕过）——
+> **被自动带入的那个 Jackson 是哪个版本？取决于你装的是哪一版：**
+>
+> | 你装的 | 解析到的 `jackson-databind` | 命中公告 |
+> |---|---|---|
+> | **v0.6.2 及以后** | **2.21.5** | **0 条** |
+> | v0.6.1 及更早 | 2.21.2 | 下表 5 条**全部** |
+>
+> v0.6.1 那 5 条（2 HIGH + 3 MEDIUM，含 `PolymorphicTypeValidator` 绕过与
+> `@JsonIgnore` 绕过）：
 >
 > | 公告 | 级别 | 修复版本 |
 > |---|---|---|
@@ -64,19 +72,17 @@ mvn install:install-file \
 > | CVE-2026-59888 / GHSA-3pjw-73gf-8qr5 | MEDIUM | 2.21.4 |
 > | CVE-2026-54515 / GHSA-5jmj-h7xm-6q6v | MEDIUM | **2.21.5** |
 >
-> 也就是说：照本文档「方式一」装当前最新版（v0.6.1）的人，工程里会多出一个
-> 带 5 条漏洞的 Jackson。修复已在 master（pom 里显式 import `jackson-bom:2.21.5`，
-> 理由写在该处注释里）、**尚未发布**。
->
-> 现在就要干净的依赖图，两条路：① 在自己的 `dependencyManagement` 里显式钉
-> `jackson-bom` ≥ 2.21.5；② 从源码构建，用修好的内嵌 POM（`./mvnw install`）。
+> **v0.6.2 是怎么修掉的**：内嵌 POM 里显式 import 了 `jackson-bom:2.21.5`，
+> 且**排在 `spring-boot-dependencies` 前面**（多个 import 管同一坐标时先声明的赢）。
+> 发版前实测过：空工程 `dependency:tree` 解析到 `jackson-databind:2.21.5`。
 >
 > **只升 Spring Boot 是不够的**：3.5.13 的 BOM 给 2.21.2，目前最新的 3.5.16 给 2.21.4
-> —— 仍命中 CVE-2026-54515。没有任何一个 3.5.x 的 BOM 会给到 2.21.5。
+> —— 仍命中 CVE-2026-54515。没有任何一个 3.5.x 的 BOM 会给到 2.21.5，只能显式钉。
 >
 > 这个仓库自己的 Dependabot 告警是**空的**，而它并不能反驳上面这段：内嵌 POM 里
 > `jackson-databind` 不写版本号，Maven 的依赖图因此记不到这个坐标，
 > Dependabot 的 Maven 覆盖是**静态图**，看不到 BOM 才决定出来的版本。缺口在这里。
+> ——也就是说，**上面那个 2.21.2 从来不会出现在告警里**，只能自己装一遍才看得见。
 >
 > 这是"还没上 Maven Central"的临时办法，不是推荐用法；正式做法见 Roadmap。
 
@@ -110,10 +116,21 @@ mvn install:install-file \
 落后的那部分动了 `pom.xml`、`mvnw`、`.mvn/wrapper/*`——也就是说那个产物和 CI 在 main 上
 验过的不是同一份。
 
-另一条同样重要的约束：**查不动不等于通过**。HTTP 403/404（Dependabot 没开或
-`GITHUB_TOKEN` 缺 `security-events: read`）、响应不是数组、级别字段不认识、
-git 历史取不到——一律拒绝发布。这些情况在日志里和"没有告警"长得一模一样。
-本仓库的告警数恰好是 0，正好是那种"看起来没问题"要格外小心读数的地方。
+另一条同样重要的约束：**查不动不等于通过**。HTTP 401/403/404、响应不是数组、
+级别字段不认识、git 历史取不到——一律拒绝发布。这些情况在日志里和"没有告警"
+长得一模一样。本仓库的告警数恰好是 0，正好是那种"看起来没问题"要格外小心读数的地方。
+
+> ⚠️ **而这条约束曾经让闸一变成"永远拒绝"**——因为它建在一个 Actions 的
+> `GITHUB_TOKEN` **够不到**的接口上。2026-09-20 在 ctxpress 上实测：
+> `GITHUB_TOKEN` + `security-events: read` → 403 `Resource not accessible by integration`；
+> 匿名 → 401；本地 PAT → 200。**Dependabot 告警接口只认 PAT / GitHub App token**
+> （`security-events` 管的是 code scanning，不是 Dependabot）。
+> 一道永远查不动、于是永远拒绝发布的闸，和没有闸是一回事——它只会被绕过。
+>
+> 所以 workflow 现在优先用 `secrets.PREFLIGHT_TOKEN`（PAT）；没配时给闸一加
+> `--alerts-optional`，降级为**大声告警后放行**。降级**只覆盖"平台不让这个 token 查"**
+> （401/403/404）——脚本自己的故障（状态码文件没写出来、响应不是数组、5xx）
+> **一律照样拒绝**，**读到高危告警也照样拒绝**。否则这个开关就成了"把红变绿"的后门。
 
 > **本仓库有 Maven Wrapper**（`./mvnw`，钉住 Maven 3.9.9）。它和 `project.build.outputTimestamp`
 > 一起保证发布产物可复现——CI 与本地跑的是同一套构建工具（`b6c6342` 引入）。
@@ -138,7 +155,7 @@ mvn install          # 用你自己装的 Maven
 <dependency>
     <groupId>com.xiaoxu</groupId>
     <artifactId>desensitize-spring-boot-starter</artifactId>
-    <version>0.6.1</version>
+    <version>0.6.2</version>
 </dependency>
 ```
 
