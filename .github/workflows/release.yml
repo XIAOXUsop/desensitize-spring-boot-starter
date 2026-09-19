@@ -24,8 +24,26 @@ jobs:
       - name: Build
         run: ./mvnw -B package
 
+      # 除了带版本号的产物，再挂一份**不带版本号**的副本。
+      #
+      # 为什么需要：README 的「下载即用」一行用的是
+      # `releases/latest/download/<文件名>`，而 `latest` 指的是**最新那个 Release**，
+      # 并**按文件名**取产物。所以文件名里一旦带版本号，那个 URL 会在**下一个版本
+      # 发布之后直接 404**——v0.6.1 的资产不会出现在 v0.7.0 的 Release 里。
+      # （对照：ctxpress 与 mcp-sentinel 的产物名不带版本，下载命令因此一直有效。）
+      #
+      # 多挂一份稳定的名字之后，README 就能写成版本无关的一行，且不必每次发版去改。
+      # `grep -v` 是防御性的：当前跑的是不带 `-P` 的 `package`，不会产出 sources/javadoc，
+      # 但将来若有人在这里加上 `-Prelease`，通配就会匹配到三个文件、`cp` 会直接失败。
+      - name: Add a version-free alias
+        run: |
+          main=$(ls target/desensitize-spring-boot-starter-*.jar | grep -v sources | grep -v javadoc | head -1)
+          cp "$main" target/desensitize-spring-boot-starter.jar
+
       - name: Publish release assets
         uses: softprops/action-gh-release@v2
         with:
-          files: target/desensitize-spring-boot-starter-*.jar
+          files: |
+            target/desensitize-spring-boot-starter-*.jar
+            target/desensitize-spring-boot-starter.jar
           generate_release_notes: true

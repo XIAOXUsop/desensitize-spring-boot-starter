@@ -36,6 +36,14 @@ mvn install:install-file \
   -Dversion=0.6.1 -Dpackaging=jar
 ```
 
+> ⚠️ **上面这条 URL 里的版本号要跟着每次发版改。** `releases/latest/download/<文件名>`
+> 指的是**最新那个 Release** 里的同名产物，所以旧版本的文件名会在新版本发布后直接 404。
+>
+> **从下一个版本起**，Release 里会多挂一份**不带版本号**的
+> `desensitize-spring-boot-starter.jar`（见 `release.yml`），那时把上面两行的文件名
+> 换成不带版本号的写法就一劳永逸了。对照：ctxpress 与 mcp-sentinel 的产物名本来就
+> 不带版本，所以它们没有这个问题。
+
 > 安装用的是 **jar 内嵌的 POM**，它带着依赖声明——实测在只声明 starter、
 > 不写任何 Spring / Jackson 的空工程里，`spring-boot-autoconfigure:3.5.13` 与
 > `jackson-databind:2.21.2` 会被自动带入，宿主**不需要**手动补。
