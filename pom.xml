@@ -66,6 +66,38 @@
 
     <dependencyManagement>
         <dependencies>
+            <!--
+              jackson-bom 必须排在 spring-boot-dependencies **前面**：
+              多个 import 管理同一个坐标时，**先声明的那份赢**。
+
+              为什么非钉不可（2026-09-19 实测）：
+              本库不写 jackson 的版本号，版本由内嵌 POM import 的 spring-boot-dependencies
+              决定。而按 README「方式一」装出来的空工程里，实测解析结果是
+              **jackson-databind 2.21.2**——它命中下面五条公告的**全部**：
+
+                CVE-2026-54512 (HIGH)   patched 2.21.4
+                CVE-2026-54513 (HIGH)   patched 2.21.4
+                CVE-2026-54514 (MEDIUM) patched 2.21.4
+                CVE-2026-59888 (MEDIUM) patched 2.21.4
+                CVE-2026-54515 (MEDIUM) patched 2.21.5
+
+              也就是说，**照文档装这个 starter 的人会拿到一个带 5 条已知漏洞的 Jackson**。
+
+              只把 spring-boot 升上去**解决不了**：3.5.13 的 BOM 给 2.21.2，
+              目前最新的 3.5.16 给 2.21.4——仍然命中 CVE-2026-54515。
+              修复线是 2.21.5，没有任何一个 3.5.x 的 BOM 会给到这个版本，只能显式钉。
+              （姊妹项目 mcp-sentinel / ctxpress 也都取 2.21.5，理由同：五条里要求最高的那条。）
+
+              这个库的定位是"序列化层脱敏"，钉住自己唯一关心的那个序列化库的版本，
+              比让它跟着宿主 BOM 漂移更说得通。
+            -->
+            <dependency>
+                <groupId>com.fasterxml.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
+                <version>2.21.5</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>

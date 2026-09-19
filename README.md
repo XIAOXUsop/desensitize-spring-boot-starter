@@ -51,6 +51,32 @@ mvn install:install-file \
 > （本文档此前写的是"自动生成的 POM 不含依赖声明、宿主需自带"——**那是错的**。
 > `mvn install:install-file` 在 jar 内有 `META-INF/maven/**/pom.xml` 时用的就是它，
 > 而不是"自动生成一份最小 POM"。2026-09-18 照本文档亲手做了一遍才发现。）
+
+> ⚠️ **被自动带入的那个 `jackson-databind:2.21.2` 是带洞的。**
+> 2026-09-19 实测核对：2.21.2 命中下列 5 条已知公告的**全部**（2 HIGH + 3 MEDIUM，
+> 含 `PolymorphicTypeValidator` 绕过与 `@JsonIgnore` 绕过）——
+>
+> | 公告 | 级别 | 修复版本 |
+> |---|---|---|
+> | CVE-2026-54512 / GHSA-j3rv-43j4-c7qm | HIGH | 2.21.4 |
+> | CVE-2026-54513 / GHSA-rmj7-2vxq-3g9f | HIGH | 2.21.4 |
+> | CVE-2026-54514 / GHSA-hgj6-7826-r7m5 | MEDIUM | 2.21.4 |
+> | CVE-2026-59888 / GHSA-3pjw-73gf-8qr5 | MEDIUM | 2.21.4 |
+> | CVE-2026-54515 / GHSA-5jmj-h7xm-6q6v | MEDIUM | **2.21.5** |
+>
+> 也就是说：照本文档「方式一」装当前最新版（v0.6.1）的人，工程里会多出一个
+> 带 5 条漏洞的 Jackson。修复已在 master（pom 里显式 import `jackson-bom:2.21.5`，
+> 理由写在该处注释里）、**尚未发布**。
+>
+> 现在就要干净的依赖图，两条路：① 在自己的 `dependencyManagement` 里显式钉
+> `jackson-bom` ≥ 2.21.5；② 从源码构建，用修好的内嵌 POM（`./mvnw install`）。
+>
+> **只升 Spring Boot 是不够的**：3.5.13 的 BOM 给 2.21.2，目前最新的 3.5.16 给 2.21.4
+> —— 仍命中 CVE-2026-54515。没有任何一个 3.5.x 的 BOM 会给到 2.21.5。
+>
+> 这个仓库自己的 Dependabot 告警是**空的**，而它并不能反驳上面这段：内嵌 POM 里
+> `jackson-databind` 不写版本号，Maven 的依赖图因此记不到这个坐标，
+> Dependabot 的 Maven 覆盖是**静态图**，看不到 BOM 才决定出来的版本。缺口在这里。
 >
 > 这是"还没上 Maven Central"的临时办法，不是推荐用法；正式做法见 Roadmap。
 
@@ -61,7 +87,7 @@ mvn install:install-file \
 | 项 | 状态 |
 |---|---|
 | groupId `com.xiaoxu` | 与 GitHub 账号对应；用 `io.github.xiaoxusop` 也可，两者都能过 namespace 校验 |
-| POM 元数据 | 已补 `licenses` / `scm` / `developers`；`mvn -Prelease -Dgpg.skip=true package` 产出 `-sources.jar`（20 个源文件）与 `-javadoc.jar`（67 个页面） |
+| POM 元数据 | 已补 `licenses` / `scm` / `developers`；`./mvnw -Prelease -Dgpg.skip=true package` 产出 `-sources.jar`（20 个源文件）与 `-javadoc.jar`（67 个页面） |
 | 签名 | `maven-gpg-plugin` 挂在 `release` profile 的 `verify` 阶段 |
 | 上传 | `central-publishing-maven-plugin`，`autoPublish=false`（停在 Portal 供人工确认） |
 | 工作流 | `.github/workflows/publish-central.yml`，**只能手动触发**且要求手打确认词 |
@@ -70,14 +96,42 @@ mvn install:install-file \
 差的是四个 secrets：`MAVEN_CENTRAL_USERNAME`、`MAVEN_CENTRAL_PASSWORD`（Sonatype 用户令牌）
 与 `GPG_PRIVATE_KEY`、`MAVEN_GPG_PASSPHRASE`。
 
-> 本仓库没有 Maven Wrapper，所以 `release` profile 里的 javadoc 插件刻意选了 3.5.0
-> 并显式写 `<source>21</source>`——3.6+ 要求 Maven ≥ 3.6.3，而使用者用的是自己装的 Maven。
-> ctxpress / amlagent 有 wrapper，不受这个限制。
+**发版前的两道闸**（`.github/workflows/release.yml`，打 tag 时跑）
+
+打 tag 会触发构建，但**不是打了就一定发**——`scripts/release_preflight.py` 要先过两道：
+
+| 闸 | 查什么 |
+|---|---|
+| 一 | 仓库里还有 `high`/`critical` 的开放依赖告警 → 拒绝发布 |
+| 二 | 这个 tag 落后默认分支，且落后的提交动过 `pom.xml`/`mvnw`/`gradle` 配置 → 拒绝发布 |
+
+对本仓库尤其实际：**Release 是使用者唯一的"下载即用"入口**（还没上 Central），
+所以"发出去的那份落后于 master"的代价比别处更高。实测这个 tag（v0.6.1）落后 5 个提交，
+落后的那部分动了 `pom.xml`、`mvnw`、`.mvn/wrapper/*`——也就是说那个产物和 CI 在 main 上
+验过的不是同一份。
+
+另一条同样重要的约束：**查不动不等于通过**。HTTP 403/404（Dependabot 没开或
+`GITHUB_TOKEN` 缺 `security-events: read`）、响应不是数组、级别字段不认识、
+git 历史取不到——一律拒绝发布。这些情况在日志里和"没有告警"长得一模一样。
+本仓库的告警数恰好是 0，正好是那种"看起来没问题"要格外小心读数的地方。
+
+> **本仓库有 Maven Wrapper**（`./mvnw`，钉住 Maven 3.9.9）。它和 `project.build.outputTimestamp`
+> 一起保证发布产物可复现——CI 与本地跑的是同一套构建工具（`b6c6342` 引入）。
+>
+> 本文档此前写的是"本仓库没有 Maven Wrapper，所以 javadoc 插件选了 3.5.0"——**前半句是错的**。
+> wrapper 是 `b6c6342` 加进来的，而那次提交没动 README，这句话就那样留下来了。
+>
+> 后半句的结论仍然保留，但理由要改：文档里也给了 `mvn` 的写法，而**用自己装的 Maven 的人
+> 可能低于 3.6.3**（javadoc 插件 3.6+ 要求 Maven ≥ 3.6.3），所以 `release` profile 里
+> 仍刻意选 3.5.0 并显式写 `<source>21</source>`。走 `./mvnw` 的话不受这个限制——
+> 这个钉法是保守，不是必需。
 
 **方式二：从源码构建**
 
 ```bash
-mvn install         # 安装到本地仓库
+./mvnw install       # 用 wrapper：Maven 版本与 CI、与发布时一致（推荐）
+# 或
+mvn install          # 用你自己装的 Maven
 ```
 
 ```xml
