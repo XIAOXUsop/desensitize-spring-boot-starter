@@ -83,6 +83,70 @@ class PromptRedactorTest {
         assertTrue(redacted.contains("BANK_CARD_"), redacted);
     }
 
+    /**
+     * **同一段数字同时通过两道校验时，只能报一次。**
+     *
+     * <p>`PiiDetector` 按 身份证 → 银行卡 → 手机号 → 邮箱 的优先级占用区间，
+     * 已占用的区间不再重复报告（`isConsumed`）——这段逻辑此前**没有任何测试**：
+     * 把那次 `continue` 删掉，98 条用例**全绿**。
+     *
+     * <p>而它是活的，代价还很大。`110101199003070054` 是一个**校验位合法、
+     * 同时又通过 Luhn** 的 18 位身份证（两个条件都验过），此时两轮都会命中同一区间：
+     *
+     * <pre>
+     *   有 isConsumed: detect() -> [ID_CARD]
+     *   没有        : detect() -> [ID_CARD, BANK_CARD]（同一区间报两次）
+     *                 redact()  -> IndexOutOfBoundsException: Range [21, 3) out of bounds for length 26
+     * </pre>
+     *
+     * <p>也就是说，脱敏流程不是"多报一条"，是**直接崩在调用方那里**。
+     */
+    @Test
+    void aValueValidAsTwoKindsIsReportedExactlyOnce() {
+        String dual = "110101199003070054";
+        assertTrue(PiiDetector.isValidIdCard(dual), "前提：它得是一个校验位合法的身份证");
+        assertTrue(PiiDetector.isValidLuhn(dual), "前提：它同时得通过 Luhn");
+
+        var matches = PiiDetector.detect(dual, PromptRedactor.DEFAULT_TYPES);
+
+        assertEquals(1, matches.size(), "同一区间只应报一次，实际：" + matches);
+        assertEquals(SensitiveType.ID_CARD, matches.get(0).type(), "优先级高的类型应当胜出");
+
+        // 真正要守的是这条：脱敏流程不能因此抛异常
+        String redacted = redactor.redact("客户 " + dual + " 需要复核");
+        assertFalse(redacted.contains(dual), redacted);
+        assertEquals("客户 " + dual + " 需要复核", redactor.restore(redacted));
+    }
+
+    /**
+     * **两条已知的误报——钉住它们，是为了让"边界变了"这件事有人看得见。**
+     *
+     * <p>检出用的是"形状 + 校验位"，不是真正的业务校验：
+     *
+     * <ol>
+     *   <li>{@code 110101202602301234}：出生日期是 **2 月 30 日**。
+     *       正则只卡"月 01–12、日 01–31"的形状，不按月校验，校验位又凑对了，于是照报；</li>
+     *   <li>{@code 2026092200000001}：一串 16 位订单号，**恰好通过 Luhn**。
+     *       Luhn 只有一位校验位，落在 16~19 位窗口里的任意数字约 **10%** 会通过
+     *       （实测 16/17/18/19 位各 20000 个随机串：10.02% / 9.93% / 10.31% / 10.18%）。</li>
+     * </ol>
+     *
+     * <p>这是有意的取舍——漏报的代价远高于误报。所以这里断言的不是"它们**应该**被报"，
+     * 而是**"今天的边界在这里"**：哪天加了发卡行前缀约束、或按月校验日期，
+     * 这两条会红——那说明边界收紧了，是好事，把它改掉并在 README 里写清新边界即可。
+     * 反过来，如果哪天它**静默地**不再报，也会在这里被拦下。
+     */
+    @Test
+    void knownFalsePositivesArePinnedAsTodayBoundary() {
+        assertEquals(SensitiveType.ID_CARD,
+                PiiDetector.detect("110101202602301234", PromptRedactor.DEFAULT_TYPES).get(0).type(),
+                "2 月 30 日这种日期目前只过形状检查，不按月校验");
+
+        assertEquals(SensitiveType.BANK_CARD,
+                PiiDetector.detect("2026092200000001", PromptRedactor.DEFAULT_TYPES).get(0).type(),
+                "通过 Luhn 的 16 位订单号目前会被当成银行卡");
+    }
+
     @Test
     void textWithoutSensitiveDataIsReturnedUnchanged() {
         String prompt = "本月交易笔数较上月上升 12%，是否需要关注？";

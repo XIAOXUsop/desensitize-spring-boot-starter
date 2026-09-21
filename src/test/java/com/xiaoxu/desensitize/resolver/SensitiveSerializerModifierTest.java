@@ -1,5 +1,6 @@
 package com.xiaoxu.desensitize.resolver;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.xiaoxu.desensitize.annotation.Sensitive;
@@ -141,6 +142,36 @@ class SensitiveSerializerModifierTest {
         // 若是字段上的 ID_CARD 胜出，这里会是 `110101***1234`。
         assertTrue(json.contains("1***"), json);
         assertFalse(json.contains("110101***1234"), json);
+    }
+
+    /**
+     * 注解标在**私有字段**上、而 Jackson 挑中的主成员是另一个方法时，
+     * `findOnField` 那段回退查找必须生效。
+     *
+     * <p>这条此前没有覆盖：既有 fixture 只有「public 字段」与「直接标在 getter 上」两种，
+     * 而 public 字段时 Jackson 的主成员就是那个字段，`writer.getAnnotation()` 一步就命中，
+     * 整段回退逻辑（约 40 行）**删掉之后 98 条用例全绿**。
+     *
+     * <p>下面这个是真实形态：字段私有、另起一个 `@JsonProperty` 方法当出口——
+     * 属性名与字段名一致，而 Jackson 看到的主成员是那个方法。
+     */
+    static class AnnotatedFieldBehindARenamedGetter {
+        @Sensitive(type = SensitiveType.ID_CARD)
+        private String idCard = "110101199901011234";
+
+        @JsonProperty("idCard")
+        public String fetchCard() {
+            return idCard;
+        }
+    }
+
+    @Test
+    void annotationOnAPrivateFieldIsFoundWhenJacksonPicksAnotherMember() throws Exception {
+        String json = mapperWith('*').writeValueAsString(new AnnotatedFieldBehindARenamedGetter());
+
+        assertFalse(json.contains("110101199901011234"),
+                "主成员上没有注解时，要回退去找同名字段上的注解，否则这里会明文出网：" + json);
+        assertTrue(json.contains("110101***1234"), json);
     }
 
     @Test
