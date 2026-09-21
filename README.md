@@ -218,9 +218,19 @@ public Customer detail(@PathVariable Long id) {
 ```yaml
 xiaoxu:
   desensitize:
-    enabled: true      # 全局开关，默认 true；设为 false 时整个自动配置不生效
+    enabled: true      # 注解式脱敏（接口返回值掩码）的开关，默认 true
     mask-char: '*'     # 占位字符，默认 '*'
+    pseudonym:
+      enabled: false   # 可逆假名化是**另一个开关**，默认关闭，见下
 ```
+
+> ⚠️ **`xiaoxu.desensitize.enabled=false` 只关掉注解式脱敏那一半，不会关掉假名化。**
+> 这一行原先注释写的是「全局开关……整个自动配置不生效」——**那是错的**：
+> `PseudonymAutoConfiguration` 只看 `xiaoxu.desensitize.pseudonym.enabled`。
+> 两者是并列的两个能力，各自有开关（属性元数据里一直写得很准，是 README 这里说过头了）。
+>
+> 这一点有实际后果：假名化缺密钥会**在启动期失败**。
+> 所以「把 starter 整个关掉」如果只写前者，容器照样会因为缺密钥起不来。
 
 配置项已提供 IDE 元数据（`additional-spring-configuration-metadata.json`），在 `application.yml` 中有补全提示。
 
@@ -399,7 +409,7 @@ scopedVault.forget(session);                              // 只清这一个会�
 mvn test
 ```
 
-96 项测试覆盖：8 种脱敏类型的算法与边界、字段注解 / getter 注解、嵌套对象与集合、
+98 项测试覆盖：8 种脱敏类型的算法与边界、字段注解 / getter 注解、嵌套对象与集合、
 null 值、自定义占位字符；**令牌位数与版本解析（v1/v2）、跨密钥不可伪造 / 无原文残留 /
 多轮一致 / 还原往返 / 未知令牌与伪造令牌不猜测**；**保险库碰撞失败**（同令牌同原文幂等、
 同令牌异原文抛异常且保留原映射、异常不泄漏原文）；**会话级隔离**（作用域互不可见、
@@ -416,8 +426,22 @@ null 值、自定义占位字符；**令牌位数与版本解析（v1/v2）、�
 > 更值得记的是**测试也叫同一个名字**，却只覆盖了下划线歧义——真正的撞键向量
 > 从没被构造过。
 
-以及两组 **自动配置集成测试**
-（`ApplicationContextRunner` 验证真实 Spring 上下文中的装配、开关、缺密钥快速失败）。
+以及**自动配置集成测试**（`ApplicationContextRunner`）：
+真实 Spring 上下文里的 bean 装配、两个开关各自的生效范围、自定义占位字符流进序列化器、
+缺密钥在**启动期**失败。
+
+> **它验到哪一步、没验到哪一步，写清楚免得被读成更多：**
+> 这些用例确认的是「本 starter 的自动配置类在上下文里装出了哪些 bean、开关怎么作用」，
+> 以及「拿到那个 `Module` 之后它确实会脱敏」。**它没有验证 Boot 自己的
+> `JacksonAutoConfiguration` 会把 `Module` 收进它的 `ObjectMapper`**——
+> 那几个用例是**自己 `new ObjectMapper()` 再手动 `registerModule`**。
+> 真实应用里那一步是 Boot 的标准行为（它按类型收集所有 `Module` bean），
+> 但本项目没有一条断言在执行它。
+>
+> 2026-09-22 尝试补一条时发现：在最小 `ApplicationContextRunner` 里加上
+> `JacksonAutoConfiguration` 之后，上下文里**并没有** `ObjectMapper` bean
+> （`NoSuchBeanDefinition`）。**没能确定这是最小上下文的假象还是真问题**，
+> 所以这里只记下这个悬而未决的点，不把任何一边写成结论。
 
 ## Roadmap
 
