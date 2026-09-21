@@ -34,8 +34,17 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class InMemoryTokenVault implements ScopedTokenVault {
 
-    /** 作用域与令牌拼成的内部键。用不可能出现在作用域名里的分隔符，避免 `a` + `b_c` 与 `a_b` + `c` 撞键 */
-    private static final char SEPARATOR = '\u0000';
+    /**
+     * 作用域与令牌拼成的内部键：作用域名 + SEPARATOR + 令牌。
+     *
+     * <p>用一个控制字符做分隔符，避免 `a` + `b_c` 与 `a_b` + `c` 拼成同一个键。
+     *
+     * <p>**但「它不可能出现在作用域名里」这件事必须由 {@link VaultScope} 强制**，
+     * 光靠这句注释不算数——它原先就没被强制过，于是 `"x\u0000y"` 这种名字会落进
+     * `"x"` 的前缀里，`forget(x)` 连带删掉另一个作用域的映射（实测于 2026-09-22）。
+     * 改成包内可见，就是为了让测试能拿它去构造名字、把那条规定绑住。
+     */
+    static final char SEPARATOR = '\u0000';
 
     private final Map<String, Entry> entries = new ConcurrentHashMap<>();
 

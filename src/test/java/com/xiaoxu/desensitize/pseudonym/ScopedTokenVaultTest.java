@@ -17,6 +17,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -107,6 +108,50 @@ class ScopedTokenVaultTest {
         assertEquals(Optional.empty(),
                 vault.original(VaultScope.of("s_ID_CARD"), "v2_" + "0".repeat(32)));
         assertEquals(0, vault.size(VaultScope.of("s_ID_CARD")));
+    }
+
+    /**
+     * **真正的撞键向量是分隔符本身**——上面那条只覆盖了下划线歧义。
+     *
+     * <p>这条用例的名字原先就叫「作用域名无法被构造成撞键」，但断言体里从没构造过
+     * 含分隔符的名字。而 `InMemoryTokenVault` 的注释写着「用**不可能出现在作用域名里的**
+     * 分隔符」——那句话**从来没被强制过**：`VaultScope` 只拦 null 与 blank。
+     *
+     * <p>实测（2026-09-22）的三种症状，下面逐条钉住：
+     * <ul>
+     *   <li>{@code size("session-a")} 把 {@code "session-a\u0000evil"} 的登记算进来；</li>
+     *   <li>{@code forget("session-a")} 连带删掉另一个作用域的映射，那一边从此读不回原文；</li>
+     *   <li>而 {@code original()} 是精确查键，所以读不到别人的原文——影响是**跨会话的映射
+     *       销毁与计数错乱**，不是原文泄漏。</li>
+     * </ul>
+     *
+     * <p>修法是**强制那条假设**：`VaultScope` 拒绝一切控制字符。下面最后一条断言把
+     * 「分隔符是控制字符」这件事本身绑住——直接拿 {@code InMemoryTokenVault.SEPARATOR}
+     * 去构造名字。哪天有人把分隔符换成可打印字符（比如又想用下划线），那条会先红。
+     */
+    @Test
+    void scopeNamesContainingTheVaultSeparatorAreRejected() {
+        // ① 含分隔符的名字根本构造不出来
+        assertThrows(IllegalArgumentException.class,
+                () -> VaultScope.of("session-a" + InMemoryTokenVault.SEPARATOR + "evil"),
+                "含保险库分隔符的作用域名必须被拒绝——它否则会落进别人的前缀里");
+
+        // ② 拒绝与否与分隔符是什么字符无关：只要它是控制字符就一律拒绝
+        for (char control = 1; control < 32; control++) {
+            char c = control;
+            assertThrows(IllegalArgumentException.class, () -> VaultScope.of("s" + c + "x"),
+                    "控制字符 U+" + String.format("%04X", (int) c) + " 应当被拒绝");
+        }
+
+        // ③ **把两处绑在一起**：分隔符必须是控制字符，否则上面的规则挡不住它
+        assertTrue(Character.isISOControl(InMemoryTokenVault.SEPARATOR),
+                "InMemoryTokenVault 的分隔符不再是控制字符了——"
+                        + "那么 VaultScope 只拒控制字符就挡不住它，隔离会被击穿。"
+                        + "改分隔符时请连同 VaultScope 的校验一起改。");
+
+        // ④ 正常名字不受影响
+        assertDoesNotThrow(() -> VaultScope.of("session-a"));
+        assertDoesNotThrow(() -> VaultScope.GLOBAL);
     }
 
     // ---------- 令牌本身仍然是确定性的 ----------
