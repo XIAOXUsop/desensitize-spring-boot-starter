@@ -105,15 +105,36 @@ public class SensitiveSerializerModifier extends BeanSerializerModifier {
         @Override
         public void serializeAsField(Object bean, JsonGenerator gen, SerializerProvider prov) throws Exception {
             Object value = get(bean);
-            if (value instanceof String text) {
+            if (value != null && isMaskableScalar(value)) {
                 SensitiveType type = annotation.type();
                 String masked = DesensitizeCore.mask(
-                        type, text, annotation.keepFirst(), annotation.keepLast(), maskChar);
+                        type, String.valueOf(value), annotation.keepFirst(), annotation.keepLast(), maskChar);
                 gen.writeFieldName(_name);
                 gen.writeString(masked);
                 return;
             }
             super.serializeAsField(bean, gen, prov);
+        }
+
+        /**
+         * 脱敏的是「一个标量值」，不只是 `String`。
+         *
+         * <p>这里原先写的是 `value instanceof String`，于是 `Long phone`、`Integer idCard`
+         * 这类**直接在明文里落下去**——实测（2026-09-22）：同一个类里
+         * `@Sensitive(phone) Long phone` 输出 `13800000000`，
+         * 而 `@Sensitive(idCard) String idCard` 正常掩码。
+         * 国内金融 DTO 里年龄、手机号、证件号用数值类型很常见，这条路径此前是敞开的。
+         *
+         * <p>故意**不**覆盖 Map / 集合 / 数组 / 普通对象：那类值不是"一个敏感标量"，
+         * 把整个结构 `String.valueOf` 成一段文本反而会把数组拍平、丢结构。
+         * 它们各自的字段会分别被本拦截器处理，真正的问题是"没有注解可标"的
+         * 动态载体，那属于另一个话题，不该在这里顺手改掉。
+         */
+        private static boolean isMaskableScalar(Object value) {
+            return value instanceof CharSequence
+                    || value instanceof Number
+                    || value instanceof Character
+                    || value instanceof java.util.UUID;
         }
     }
 }

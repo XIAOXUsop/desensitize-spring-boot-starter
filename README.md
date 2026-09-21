@@ -212,6 +212,16 @@ public Customer detail(@PathVariable Long id) {
 | `CUSTOM` | 按 `keepFirst` / `keepLast` 自定义 | `@Sensitive(keepFirst = 2, keepLast = 2)` |
 
 > 长度不足时不会越界，整体打码并保留首字符。
+>
+> **参数本身越界（负数、`Integer.MAX_VALUE`）也不会抛异常**——超出范围会被钳住。
+> 这条是 2026-09-22 补的：当时只覆盖了"值不够长"，而
+> `@Sensitive(type = CUSTOM, keepFirst = -1, keepLast = -1)` 会走到
+> `substring(0, -1)` 抛 `StringIndexOutOfBoundsException`（接口 500），
+> `Integer.MAX_VALUE` 则因为 `keepFirst + keepLast` 溢出成负数、绕过长度判断，同样抛。
+>
+> **注解只对标量生效**（`String` / 数值 / 字符 / UUID）。标在集合或 Map 上没有效果，
+> 也不会报错——那类值不是"一个敏感标量"，要脱敏请标在元素类型上。
+> `Map<String,Object>`、`ObjectNode` 这类动态载体没有可标之处，不在覆盖范围内。
 
 ## 配置
 
@@ -409,13 +419,16 @@ scopedVault.forget(session);                              // 只清这一个会�
 mvn test
 ```
 
-98 项测试覆盖：8 种脱敏类型的算法与边界、字段注解 / getter 注解、嵌套对象与集合、
+107 项测试覆盖：8 种脱敏类型的算法与边界（含 `keepFirst` / `keepLast` 越界参数的钳制）、
+字段注解 / getter 注解 / **非 String 标量** / 两处都标时的实际优先级、嵌套对象与集合、
 null 值、自定义占位字符；**令牌位数与版本解析（v1/v2）、跨密钥不可伪造 / 无原文残留 /
 多轮一致 / 还原往返 / 未知令牌与伪造令牌不猜测**；**保险库碰撞失败**（同令牌同原文幂等、
 同令牌异原文抛异常且保留原映射、异常不泄漏原文）；**会话级隔离**（作用域互不可见、
 整体撤销不影响其他会话、**作用域名无法被构造成撞键**、过期后不可还原、并发读写一致、
 审计回调不含原文）；**模型调用装饰器**（多轮令牌一致、未知令牌不猜测、异常信息消毒、
 含敏感内容时不保留堆栈、不含敏感内容时保留堆栈、日志消毒不登记映射）；
+**提示词脱敏对常见书写形态的覆盖**（`+86` 国家码、空格/连字符分隔、4 位一组的卡面写法、
+15 位老身份证）。
 > **「作用域名无法被构造成撞键」这句话曾经是假的。** 保险库用「作用域名 + 控制字符
 > 分隔符 + 令牌」拼内部键，而 `size` / `forget` 按前缀匹配——它原来的注释写着
 > 「用不可能出现在作用域名里的分隔符」，但**那句话从来没被强制过**：`VaultScope`
@@ -431,17 +444,28 @@ null 值、自定义占位字符；**令牌位数与版本解析（v1/v2）、�
 缺密钥在**启动期**失败。
 
 > **它验到哪一步、没验到哪一步，写清楚免得被读成更多：**
-> 这些用例确认的是「本 starter 的自动配置类在上下文里装出了哪些 bean、开关怎么作用」，
-> 以及「拿到那个 `Module` 之后它确实会脱敏」。**它没有验证 Boot 自己的
-> `JacksonAutoConfiguration` 会把 `Module` 收进它的 `ObjectMapper`**——
-> 那几个用例是**自己 `new ObjectMapper()` 再手动 `registerModule`**。
-> 真实应用里那一步是 Boot 的标准行为（它按类型收集所有 `Module` bean），
-> 但本项目没有一条断言在执行它。
+> 这些用例确认的是「本 starter 的自动配置类在上下文里装出了哪些 bean、开关怎么作用」、
+> 「拿到那个 `Module` 之后它确实会脱敏」，以及
+> 「**应用自己定义了 `ObjectMapper` Bean 时，脱敏依然生效**」。
+> 最后这条是 2026-09-22 补的，补之前它是个真窟窿，见下。
+> 本项目的测试上下文里没有 `spring-web`，所以 `ObjectMapper` 一律是自己建的——
+> Boot 自己那条路（`JacksonAutoConfiguration` 按类型收集 `Module` bean）仍然没有断言在跑，
+> 但那条路是 Boot 的标准行为，且现在即使它让位也有兜底。
 >
-> 2026-09-22 尝试补一条时发现：在最小 `ApplicationContextRunner` 里加上
-> `JacksonAutoConfiguration` 之后，上下文里**并没有** `ObjectMapper` bean
-> （`NoSuchBeanDefinition`）。**没能确定这是最小上下文的假象还是真问题**，
-> 所以这里只记下这个悬而未决的点，不把任何一边写成结论。
+> **那个"悬而未决的点"结案了，结论和当时的猜测不一样。**
+> 当时在最小 `ApplicationContextRunner` 里加上 `JacksonAutoConfiguration` 后拿不到
+> `ObjectMapper` bean，疑心是框架问题——**不是**：`Jackson2ObjectMapperBuilder`
+> 住在 `spring-web` 里，最小上下文没带它，条件自然不满足。把 `spring-web` 放上
+> classpath 后 mapper 正常出现，`Module` 也确实被收了进去。
+>
+> **真正的窟窿在另一条路上**：Boot 那个 `ObjectMapper` 挂着
+> `@ConditionalOnMissingBean(ObjectMapper.class)`——应用只要自建一个 mapper
+> （加 `JavaTimeModule`、改命名策略、配 `FAIL_ON_UNKNOWN_PROPERTIES`……工程里很常见），
+> Boot 就整个让位，`Module` bean 留在容器里再也没人把它注册进任何 mapper。
+> 实测：修之前，自带 mapper 的应用序列化出的是 `{"idCard":"110101199901011234"}`——**明文**，
+> 而**启动成功、无告警、日志无异常**。现在由 `DesensitizeAutoConfiguration` 里的
+> `BeanPostProcessor` 兜住：容器里每个 `ObjectMapper` 都会被装上那个模块（幂等，已在位则跳过）。
+> 回归用例是 `desensitizationStillAppliesWhenTheApplicationDefinesItsOwnObjectMapper`。
 
 ## Roadmap
 

@@ -163,6 +163,72 @@ class PromptRedactorTest {
         assertFalse(redacted.contains(ID_CARD), redacted);
     }
 
+    // ---------- 常见书写形态（2026-09-22 补）----------
+    //
+    // 这一组全是**漏检**回归：下面每一种写法，此前一条都认不出来。
+    // 而 `redact()` 在没有命中时是"原样返回"的——所以从调用方看不出来任何异常，
+    // 那串数字就原样发给了外部模型、原样进了日志与异常堆栈。
+    //
+    // 根因是三条正则都只认连写形态：
+    //   * 手机号前面挂着 `(?<![0-9])`，`+8613812345678` 里那个 6 就会让整条不匹配；
+    //   * 银行卡只认连着的 16 位，而 `6222 0202 0011 2347` 才是卡面上印的写法；
+    //   * 15 位老身份证既不在 18 位之内、也不在 16~19 位之内，两道都够不着。
+
+    @Test
+    void everyCommonlyWrittenFormIsRedactedAndRestorable() {
+        String[] forms = {
+                "+8613812345678",       // 国家码带 +
+                "8613812345678",        // 国家码不带 +
+                "138-1234-5678",        // 连字符分隔
+                "138 1234 5678",        // 空格分隔
+                "6222 0202 0011 2347",  // 卡面写法：4 位分组
+                "110101900307853",      // 15 位老身份证
+        };
+        for (String raw : forms) {
+            String prompt = "客户资料：" + raw + " 请核对";
+            String redacted = redactor.redact(prompt);
+
+            assertFalse(redacted.contains(raw), "「" + raw + "」没被脱敏，实际：" + redacted);
+            assertEquals(prompt, redactor.restore(redacted),
+                    "「" + raw + "」还原后与原文不一致——分隔符也算原文的一部分");
+        }
+    }
+
+    /** 分隔符只改变"怎么读"，不改变"是什么类型"。 */
+    @Test
+    void separatorsDoNotChangeTheDetectedType() {
+        for (String phone : new String[] {"+8613812345678", "8613812345678", "138-1234-5678", "138 1234 5678"}) {
+            assertEquals(SensitiveType.PHONE, PiiDetector.detect(phone, PromptRedactor.DEFAULT_TYPES).get(0).type(), phone);
+        }
+        assertEquals(SensitiveType.BANK_CARD,
+                PiiDetector.detect("6222 0202 0011 2347", PromptRedactor.DEFAULT_TYPES).get(0).type());
+        assertEquals(SensitiveType.ID_CARD,
+                PiiDetector.detect("110101900307853", PromptRedactor.DEFAULT_TYPES).get(0).type());
+    }
+
+    /** 15 位形态没有校验位可用，只能靠出生日期筛——这条挡住"随便 15 位数字都算身份证"。 */
+    @Test
+    void fifteenDigitFormStillRequiresAPlausibleBirthDate() {
+        assertTrue(PiiDetector.isValidLegacyIdCard("110101900307853"));
+        assertFalse(PiiDetector.isValidLegacyIdCard("110101902207853"), "月份 22");
+        assertFalse(PiiDetector.isValidLegacyIdCard("110101900007853"), "月份 00");
+        assertFalse(PiiDetector.isValidLegacyIdCard("11010119900307853"), "16 位不是老身份证");
+    }
+
+    /**
+     * 比卡号更长的数字串不该被从头截一段出来。
+     *
+     * <p>老正则 `[0-9]{16,19}` 遇到 20 位数字会截前 16 位去验 Luhn，
+     * 而**截出来的那一段恰好通过 Luhn 的概率是 1/10**——也就是说"报不报"
+     * 取决于这串数字凑巧长什么样，而不是取决于它是不是卡号。
+     */
+    @Test
+    void aDigitRunLongerThanAnyCardIsNotCarvedIntoACardNumber() {
+        String prompt = "流水号 12345678901234567890 已受理";
+
+        assertEquals(prompt, redactor.redact(prompt), "20 位数字不该被当成卡号");
+    }
+
     private static String tokenIn(String text, String prefix) {
         int start = text.indexOf(prefix);
         assertTrue(start >= 0, "文本中未找到令牌前缀 " + prefix + "：" + text);

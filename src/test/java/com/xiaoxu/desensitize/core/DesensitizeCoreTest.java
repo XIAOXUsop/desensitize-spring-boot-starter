@@ -50,6 +50,27 @@ class DesensitizeCoreTest {
         assertEquals("1***", DesensitizeCore.mask(SensitiveType.CUSTOM, "12", 3, 4));
     }
 
+    /**
+     * **配置写错不该把接口打成 500。**
+     *
+     * <p>`keepFirst` / `keepLast` 是使用者写在注解里的，写负数不是不可能。
+     * 实测（2026-09-22）：`keepFirst = -1, keepLast = -1` 会走到
+     * `raw.substring(0, -1)` 抛 `StringIndexOutOfBoundsException`；
+     * `Integer.MAX_VALUE` 则因为 `keepFirst + keepLast` 溢出成负数、
+     * 绕过下面那个 `>= len` 判断，同样抛。README 承诺的"不会越界"
+     * 当时只覆盖了"值不够长"，没覆盖"参数本身越界"。
+     */
+    @Test
+    void outOfRangeKeepCountsAreClampedInsteadOfThrowing() {
+        // 负数与"不保留"同义，钳到 0：结果是只留下掩码字符，不抛异常
+        assertEquals("***", DesensitizeCore.mask(SensitiveType.CUSTOM, "1234567890", -1, -1));
+        assertEquals("***", DesensitizeCore.mask(SensitiveType.CUSTOM, "1234567890",
+                Integer.MIN_VALUE, Integer.MIN_VALUE));
+        // 极大值曾经因为 keepFirst + keepLast 溢出成负数而绕过下面的长度判断
+        assertEquals("1***", DesensitizeCore.mask(SensitiveType.CUSTOM, "1234567890",
+                Integer.MAX_VALUE, Integer.MAX_VALUE));
+    }
+
     @Test
     void nullAndEmpty() {
         assertEquals(null, DesensitizeCore.mask(SensitiveType.CUSTOM, null, 1, 1));

@@ -7,6 +7,8 @@ import com.xiaoxu.desensitize.pseudonym.PromptRedactor;
 import com.xiaoxu.desensitize.annotation.SensitiveType;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -66,6 +68,58 @@ class DesensitizeAutoConfigurationTest {
                             "enabled=false 应当关掉注解式脱敏那一半");
                     assertNotNull(context.getBean(PromptRedactor.class),
                             "enabled=false **不该**影响假名化——它有自己的开关");
+                });
+    }
+
+    /**
+     * **应用自己定义一个 `ObjectMapper` Bean 时，脱敏必须依然生效。**
+     *
+     * <p>这是本仓库丢失过的一条能力，而且丢得**没有任何症状**。
+     * Boot 的 `JacksonAutoConfiguration` 只会把 `Module` Bean 注册进
+     * **它自己创建**的那个 `ObjectMapper`，而那个 Bean 挂着
+     * `@ConditionalOnMissingBean(ObjectMapper.class)`——应用一旦自建 mapper
+     * （加 `JavaTimeModule`、改命名策略、配 `FAIL_ON_UNKNOWN_PROPERTIES`……工程里很常见），
+     * Boot 就整个让位，module Bean 留在容器里再也没人用。
+     *
+     * <p>实测（2026-09-22）：修之前，这条用例拿到的是
+     * `{"idCard":"110101199901011234"}`——**明文**；启动成功、无告警、日志无异常。
+     *
+     * <p>注意：本测试上下文里没有 `spring-web`，所以 `Jackson2ObjectMapperBuilder`
+     * 不存在、Boot 也不会自己建 mapper——这里量到的正是"用户自建"那条路径。
+     */
+    @Configuration
+    static class ApplicationDefinesItsOwnMapper {
+        @Bean
+        ObjectMapper myOwnMapper() {
+            return new ObjectMapper();
+        }
+    }
+
+    @Test
+    void desensitizationStillAppliesWhenTheApplicationDefinesItsOwnObjectMapper() {
+        runner.withUserConfiguration(ApplicationDefinesItsOwnMapper.class)
+                .run(context -> {
+                    assertFalse(context.getStartupFailure() != null, String.valueOf(context.getStartupFailure()));
+
+                    ObjectMapper mapper = context.getBean(ObjectMapper.class);
+                    String json = mapper.writeValueAsString(new Sample());
+
+                    assertTrue(json.contains("110101***1234"),
+                            "应用自建的 ObjectMapper 也必须被装上脱敏模块，实际：" + json);
+                });
+    }
+
+    /** 开关关掉时，用户自己的 mapper 也不该被动。 */
+    @Test
+    void whenDisabledTheApplicationsOwnMapperIsLeftAlone() {
+        runner.withUserConfiguration(ApplicationDefinesItsOwnMapper.class)
+                .withPropertyValues("xiaoxu.desensitize.enabled=false")
+                .run(context -> {
+                    ObjectMapper mapper = context.getBean(ObjectMapper.class);
+                    String json = mapper.writeValueAsString(new Sample());
+
+                    assertFalse(json.contains("110101***1234"),
+                            "enabled=false 时不应动应用自己的 mapper，实际：" + json);
                 });
     }
 
