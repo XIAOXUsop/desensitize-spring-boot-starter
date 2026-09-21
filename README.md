@@ -33,7 +33,7 @@ mvn install:install-file \
   -Dfile=desensitize-spring-boot-starter.jar \
   -DgroupId=com.xiaoxu \
   -DartifactId=desensitize-spring-boot-starter \
-  -Dversion=0.6.2 -Dpackaging=jar
+  -Dversion=0.6.3 -Dpackaging=jar
 ```
 
 > ✅ **从 v0.6.2 起，文件名不再带版本号**，所以上面这条 URL 不用跟着发版改了。
@@ -45,6 +45,21 @@ mvn install:install-file \
 >
 > 只有 `-Dversion=` 那一行还需要跟版本走（那是你本地仓库里的坐标，可以随便起名）。
 > 对照：ctxpress 与 mcp-sentinel 的产物名本来就不带版本，所以它们没有这个问题。
+
+> ✅ **v0.6.3 修掉了 v0.6.2 的三处问题**，下载最新版即可：
+>
+> | v0.6.2 的问题 | v0.6.3 |
+> |---|---|
+> | **常见的身份证 / 手机号 / 银行卡写法，`redact()` 一条都认不出来**：15 位老身份证、`+8613812345678`、`138-1234-5678`、`6222 0202 0011 2347`（卡面写法）全部原样发给了外部模型、原样进了日志与异常堆栈——而 `redact()` 没命中时是"原样返回"，**调用方看不到任何症状** | 三条正则都接受常见书写形态；补 15 位老身份证；`isValidLuhn` 先剥分隔符再算校验位（`fe642b1`） |
+> | **应用自己定义 `ObjectMapper` Bean 时，全部脱敏静默失效**：Boot 的 `JacksonAutoConfiguration` 挂着 `@ConditionalOnMissingBean(ObjectMapper.class)`，应用一旦自建 mapper 就让它整个让位，那个 `Module` Bean 留在容器里再没人用。实测输出 `{"idCard":"110101199901011234"}`——**明文，而启动成功、无告警、日志无异常** | 新增 `BeanPostProcessor`，容器里每个 `ObjectMapper` 都会被装上模块（幂等）（`fe642b1`） |
+> | `@Sensitive` 只对 `String` 生效：`Long phone` 明文落地（`{"phone":13800000000,"idCard":"110101***1234"}`——同一个类里一行生效一行不生效）；`keepFirst`/`keepLast` 给负数或极大值抛 `StringIndexOutOfBoundsException`（接口 500） | 标量（`CharSequence`/数值/字符/UUID）都脱敏；越界参数钳住（`fe642b1`） |
+>
+> 还包括一条**没有进任何 release 的会话隔离修复**：`5f9d90e` 之前，
+> 名叫 `"session-a\u0000evil"` 的作用域会被 `forget("session-a")` 连带删掉——
+> 而 v0.6.2 的 `VaultScope` 只拦 null 与 blank。那条修复此前**只存在于 master**。
+>
+> v0.6.2 当时修的是内嵌 POM 的 `jackson-bom`（2.21.2 → 2.21.5，清掉 5 条公告），
+> 那条在 0.6.3 里没有回退。发版前实测：`mvn -o -B test` → 110 项，0 失败。
 
 > 安装用的是 **jar 内嵌的 POM**，它带着依赖声明——实测在只声明 starter、
 > 不写任何 Spring / Jackson 的空工程里，`spring-boot-autoconfigure` 与
@@ -155,7 +170,7 @@ mvn install          # 用你自己装的 Maven
 <dependency>
     <groupId>com.xiaoxu</groupId>
     <artifactId>desensitize-spring-boot-starter</artifactId>
-    <version>0.6.2</version>
+    <version>0.6.3</version>
 </dependency>
 ```
 
