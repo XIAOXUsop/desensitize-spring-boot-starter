@@ -112,7 +112,7 @@ mvn install:install-file \
 | 二 | 这个 tag 落后默认分支，且落后的提交动过 `pom.xml`/`mvnw`/`gradle` 配置 → 拒绝发布 |
 
 对本仓库尤其实际：**Release 是使用者唯一的"下载即用"入口**（还没上 Central），
-所以"发出去的那份落后于 master"的代价比别处更高。实测这个 tag（v0.6.1）落后 5 个提交，
+所以"发出去的那份落后于 master"的代价比别处更高。实测这个 tag（v0.6.1）落后 8 个提交，
 落后的那部分动了 `pom.xml`、`mvnw`、`.mvn/wrapper/*`——也就是说那个产物和 CI 在 main 上
 验过的不是同一份。
 

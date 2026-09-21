@@ -25,6 +25,36 @@ class PseudonymizerTest {
 
     private final Pseudonymizer pseudonymizer = new Pseudonymizer("unit-test-secret");
 
+    /**
+     * 令牌的摘要输入是 **`类型|v{版本}|原文`**——版本段必须在里面。
+     *
+     * <p>这条此前**没有任何断言盯着**：`Pseudonymizer` 的类注释写的是
+     * `HMAC-SHA256(密钥, 类型|原文)`（漏了版本），与实现和 README 都对不上，
+     * 而测试全绿——因为没有任何一条在验摘要的输入串。
+     *
+     * <p>为什么版本段不能省：它是 v1 / v2 令牌**不可互认**的依据。两个版本的摘要若同源，
+     * 一个 v1 的令牌就会通过 v2 的校验，等于把"换过格式"这件事的防护整个绕开。
+     *
+     * <p>这里**独立算一遍 HMAC** 把输入串钉死——不是断言"令牌等于某个常量"
+     * （那样换密钥或换算法时会无意义地红），而是断言"输入串就是文档写的那个"。
+     */
+    @Test
+    void digestInputIncludesTheVersionSegment() throws Exception {
+        String secret = "unit-test-secret";
+        javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+        mac.init(new javax.crypto.spec.SecretKeySpec(
+                secret.getBytes(java.nio.charset.StandardCharsets.UTF_8), "HmacSHA256"));
+        byte[] hash = mac.doFinal(
+                ("ID_CARD|v2|" + ID_CARD).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        StringBuilder hex = new StringBuilder();
+        for (byte b : hash) hex.append(String.format("%02x", b));
+        String expected = "ID_CARD_v2_" + hex.substring(0, Pseudonymizer.DIGEST_HEX_LENGTH);
+
+        assertEquals(expected, new Pseudonymizer(secret).tokenize(SensitiveType.ID_CARD, ID_CARD),
+                "摘要输入必须是「类型|v版本|原文」——漏掉版本段的话，"
+                        + "v1 的令牌会通过 v2 的校验，版本隔离就没了");
+    }
+
     // ---------- 生成格式 ----------
 
     @Test

@@ -40,7 +40,9 @@ jobs:
       # 尤其是「查不动 != 通过」那几条：HTTP 403、响应不是数组、级别字段不认识、
       # git 历史取不到——这些在日志里的表现和"没有告警"完全一样。
       #
-      # 反向验证过：拿掉 `if unknown:`、把 403 放行、拿掉 `if risky:`
-      # 三处守卫分别会让 2 / 1 / 2 条用例变红。
+      # 反向验证过（2026-09-22 逐个重跑）：拿掉 `if unknown:` 会让 **3** 条红、
+      # 把 403 从 platform_limited 里去掉会让 **1** 条红、拿掉 `if risky:` 会让 **2** 条红。
+      # （这里原先写的是 2 / 1 / 2——第一个数字在测试增补之后就过期了。
+      #   写"让 N 条变红"而不写清改的是哪一处，正是这类数字最容易被读成"验过了"。）
       - name: Test the release preflight gate
         run: python3 -m unittest discover -s scripts -p 'test_*.py' -v

@@ -214,9 +214,13 @@
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-javadoc-plugin</artifactId>
                         <!--
-                          刻意不用 3.6+：那些版本要求 Maven ≥ 3.6.3，而本仓库没有
-                          Maven Wrapper（ctxpress / amlagent 有），使用者用的是自己装的
-                          Maven。3.5.0 在 Maven 3.3.9 与 CI 的现代 Maven 上都能跑。
+                          刻意不用 3.6+：那些版本要求 Maven ≥ 3.6.3，而**使用者**可能
+                          用的是自己装的旧 Maven。3.5.0 在 Maven 3.3.9 与 CI 的现代
+                          Maven 上都能跑。
+
+                          （这句原先还写着「本仓库没有 Maven Wrapper（ctxpress / amlagent
+                           有）」——**那是错的**，wrapper 早就在仓库里。留着 3.5.0 的真实
+                           理由只剩"消费者侧可能更旧"这一条。）
                         -->
                         <version>3.5.0</version>
                         <configuration>
