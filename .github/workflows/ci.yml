@@ -29,6 +29,20 @@ jobs:
       - name: Run tests
         run: ./mvnw -B test
 
+      # README 里的测试条数必须等于真实跑出来的条数。
+      #
+      # 实测（2026-09-22）：同一页上有两处声称，一处写 110、一处写 107，
+      # 而真实是 **110**（Maven 输出、Surefire XML、源码注解数三处一致）。
+      # 改 README 时漏改了一处，**两句话在同一页上互相矛盾**。
+      #
+      # 这类数字没有任何东西守着就一定会漂——本工作区里 letterpress 漂到过 263
+      # （实际 270）、mcp-sentinel 漂到过 127（实际 131）；有门禁的两处就没漂。
+      #
+      # 它读的是上一步 `./mvnw -B test` 写下的 Surefire XML，所以必须紧跟其后。
+      # 读不到产物**就是失败**，不是跳过——否则把测试那步拿掉，这条会静默失效。
+      - name: README 测试条数对账
+        run: python3 scripts/check_readme_test_count.py
+
   release-gate-selftest:
     name: Release Gate Self-test
     runs-on: ubuntu-latest
