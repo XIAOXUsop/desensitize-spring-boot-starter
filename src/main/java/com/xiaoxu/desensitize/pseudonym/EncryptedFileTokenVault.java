@@ -48,6 +48,7 @@ public final class EncryptedFileTokenVault implements ScopedTokenVault {
     private final Object jvmLock;
     private final Duration ttl;
     private final Clock clock;
+    private final int maxFileBytes;
     private volatile SecretKey key;
     private volatile RestoreAudit audit = (scope, type) -> { };
 
@@ -56,11 +57,19 @@ public final class EncryptedFileTokenVault implements ScopedTokenVault {
     }
 
     EncryptedFileTokenVault(Path file, SecretKey key, Duration ttl, Clock clock) {
+        this(file, key, ttl, clock, MAX_FILE_BYTES);
+    }
+
+    EncryptedFileTokenVault(Path file, SecretKey key, Duration ttl, Clock clock, int maxFileBytes) {
         this.file = Objects.requireNonNull(file, "file").toAbsolutePath().normalize();
         this.lockFile = this.file.resolveSibling(this.file.getFileName() + ".lock");
         this.jvmLock = JVM_LOCKS.computeIfAbsent(this.lockFile, ignored -> new Object());
         this.key = Objects.requireNonNull(key, "key");
         this.clock = Objects.requireNonNull(clock, "clock");
+        if (maxFileBytes <= 8 + IV_BYTES + 16) {
+            throw new IllegalArgumentException("保险库文件上限过小");
+        }
+        this.maxFileBytes = maxFileBytes;
         if (ttl != null && (ttl.isZero() || ttl.isNegative())) {
             throw new IllegalArgumentException("ttl 必须为正数");
         }
@@ -162,7 +171,7 @@ public final class EncryptedFileTokenVault implements ScopedTokenVault {
 
     private Map<EntryKey, Entry> load() throws IOException {
         if (!Files.exists(file)) return new HashMap<>();
-        if (Files.size(file) > MAX_FILE_BYTES) throw new IOException("保险库文件超过大小上限");
+        if (Files.size(file) > maxFileBytes) throw new IOException("保险库文件超过大小上限");
         try (DataInputStream input = new DataInputStream(Files.newInputStream(file))) {
             if (input.readInt() != MAGIC || input.readInt() != VERSION) {
                 throw new IOException("保险库文件头无效");
@@ -206,6 +215,11 @@ public final class EncryptedFileTokenVault implements ScopedTokenVault {
                 writeString(rows, row.getValue().raw());
                 rows.writeLong(row.getValue().expiresAt() == null ? -1 : row.getValue().expiresAt().toEpochMilli());
             }
+        }
+        // 文件头 8 字节、IV 12 字节、GCM 标签 16 字节也计入读取上限。
+        // 写出超限文件会让下一次 load 拒绝整座保险库，必须在替换旧文件前阻止。
+        if (bytes.size() > maxFileBytes - 8 - IV_BYTES - 16) {
+            throw new IOException("保险库写入后将超过文件大小上限");
         }
         byte[] iv = new byte[IV_BYTES];
         RANDOM.nextBytes(iv);

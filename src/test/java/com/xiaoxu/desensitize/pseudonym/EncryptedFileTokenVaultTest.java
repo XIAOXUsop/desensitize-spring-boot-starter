@@ -97,4 +97,18 @@ class EncryptedFileTokenVaultTest {
         }
         assertEquals(20, new EncryptedFileTokenVault(file, secret, null).size());
     }
+
+    @Test
+    void oversizedWriteKeepsPreviousVaultReadable(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("vault.bin");
+        SecretKeySpec secret = key((byte) 3);
+        EncryptedFileTokenVault vault = new EncryptedFileTokenVault(file, secret, null, Clock.systemUTC(), 160);
+        vault.remember("keep", SensitiveType.NAME, "Alice");
+        long previousSize = Files.size(file);
+
+        assertThrows(IllegalStateException.class,
+                () -> vault.remember("too-large", SensitiveType.NAME, "X".repeat(200)));
+        assertEquals(previousSize, Files.size(file));
+        assertEquals("Alice", vault.original("keep").orElseThrow());
+    }
 }
